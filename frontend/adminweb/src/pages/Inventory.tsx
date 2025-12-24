@@ -49,7 +49,7 @@ export default function Inventory() {
   const [rows, setRows] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // Filters (อ่านจาก URL query ถ้ามี)
+  // Filters
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("ALL");
   const [stockStatus, setStockStatus] = useState(searchParams.get('status') || "ALL");
@@ -63,7 +63,6 @@ export default function Inventory() {
   const load = async () => {
     setLoading(true);
     try {
-      // ดึงข้อมูลสินค้า + ยอดขาย (Inventory Endpoint)
       const res = await fetch(`${API}/products/inventory`, { headers: { Authorization: `Bearer ${getToken()}` } });
       const data = await res.json();
       
@@ -71,7 +70,6 @@ export default function Inventory() {
       if (Array.isArray(data)) {
         data.forEach((p: any) => {
           p.variants.forEach((v: any) => {
-             // Logic คำนวณสถานะสต็อก
              const available = v.stock || 0;
              let status: "OK"|"LOW"|"OUT" = "OK";
              if (available === 0) status = "OUT";
@@ -90,7 +88,7 @@ export default function Inventory() {
                total: (v.stock || 0) + (v.locked || 0),
                reserved: v.locked || 0,
                available: available,
-               sold: v.paidQty || 0, // ยอดที่ขายจริงจาก Backend
+               sold: v.paidQty || 0,
                status: status,
                preorder: !!p.preorder
              });
@@ -103,7 +101,6 @@ export default function Inventory() {
 
   useEffect(() => { load(); }, []);
 
-  // Filter Logic
   const filtered = useMemo(() => {
     return rows.filter(r => {
       const matchQ = !q || r.productName.toLowerCase().includes(q.toLowerCase()) || r.productCode?.toLowerCase().includes(q.toLowerCase());
@@ -116,7 +113,6 @@ export default function Inventory() {
     });
   }, [rows, q, cat, stockStatus]);
 
-  // Stats
   const stats = useMemo(() => ({
     totalSKUs: rows.length,
     totalValue: rows.reduce((s, r) => s + (r.available * r.price), 0),
@@ -126,38 +122,46 @@ export default function Inventory() {
 
   const categories = useMemo(() => Array.from(new Set(rows.map(r => r.category))), [rows]);
 
-  // Save Stock Adjustment
+  // ✅ FIX: Save Stock Adjustment (Include 'name' for validation)
   const saveAdjust = async () => {
     if (!adjustItem) return;
     setSaving(true);
     try {
-      // 1. ดึง Product ตัวเต็มมาก่อน (เพื่อความปลอดภัย ไม่ให้ Variant อื่นหาย)
+      // 1. ดึงข้อมูลสินค้าปัจจุบันมาก่อน
       const pRes = await fetch(`${API}/products/${adjustItem.productId}`, { headers: { Authorization: `Bearer ${getToken()}` } });
       if(!pRes.ok) throw new Error("Product fetch failed");
       const product = await pRes.json();
       
-      // 2. แก้ไขเฉพาะ Variant ที่เลือก
+      // 2. อัปเดตเฉพาะ Variant ที่เลือก
       const updatedVariants = product.variants.map((v: any) => {
          if (v._id === adjustItem.variantId || (v.size === adjustItem.size && v.color === adjustItem.color)) {
-             return { ...v, stock: Number(newStock) }; // อัปเดต stock ใหม่
+             return { ...v, stock: Number(newStock) };
          }
          return v;
       });
 
-      // 3. บันทึกกลับไป
+      // 3. ส่งข้อมูลกลับไป Update (ต้องส่ง name, category ไปด้วยเพื่อให้ผ่าน Validate)
       const res = await fetch(`${API}/products/${adjustItem.productId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-          body: JSON.stringify({ variants: updatedVariants }) // ส่งเฉพาะ variants ที่แก้แล้ว
+          body: JSON.stringify({ 
+              name: product.name,           // ✅ ใส่ name กลับไป
+              category: product.category,   // ✅ ใส่ category กลับไป
+              description: product.description,
+              variants: updatedVariants 
+          })
       });
 
-      if (!res.ok) throw new Error("Update failed");
+      if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || "Update failed");
+      }
       
       alert("✅ ปรับปรุงยอดสต็อกเรียบร้อย");
       setAdjustItem(null);
-      load(); // รีโหลดข้อมูลใหม่
-    } catch (e) {
-      alert("❌ เกิดข้อผิดพลาดในการบันทึก");
+      load();
+    } catch (e: any) {
+      alert(`❌ เกิดข้อผิดพลาด: ${e.message}`);
     } finally {
       setSaving(false);
     }
@@ -184,7 +188,6 @@ export default function Inventory() {
 
   return (
     <Box>
-      {/* Header */}
       <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" alignItems="center" mb={4} spacing={2}>
         <Stack direction="row" spacing={2} alignItems="center">
             <Box p={1.5} borderRadius={3} bgcolor={alpha(theme.palette.primary.main, 0.1)} color="primary.main">
@@ -271,7 +274,7 @@ export default function Inventory() {
         </Grid>
       </Paper>
 
-      {/* Inventory Table */}
+      {/* Table */}
       <Paper sx={{ width: '100%', overflow: 'hidden', borderRadius: 3, boxShadow: '0 4px 20px rgba(0,0,0,0.05)', border: '1px solid', borderColor: 'divider' }}>
         {loading && <LinearProgress />}
         <Table stickyHeader>
@@ -340,7 +343,7 @@ export default function Inventory() {
         </Table>
       </Paper>
 
-      {/* Adjust Dialog */}
+      {/* Manual Adjust Dialog */}
       <Dialog open={!!adjustItem} onClose={()=>setAdjustItem(null)} maxWidth="xs" fullWidth>
           <DialogTitle sx={{ fontWeight: 800 }}>🛠️ ปรับจำนวนสต็อก (Manual)</DialogTitle>
           <DialogContent>

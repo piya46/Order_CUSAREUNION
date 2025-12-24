@@ -1,10 +1,10 @@
 // src/pages/Orders/OrdersDetail.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import {
   Box, Paper, Typography, Stack, Chip, Divider, Button, TextField, MenuItem,
   Alert, Grid, Skeleton, IconButton, Stepper, Step, StepLabel, Card, CardContent,
-  Dialog, DialogContent, useTheme, alpha
+  Dialog, DialogContent, useTheme, alpha, CircularProgress
 } from "@mui/material";
 
 // Icons
@@ -13,10 +13,11 @@ import VerifiedIcon from "@mui/icons-material/Verified";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import SaveIcon from "@mui/icons-material/Save";
-import ChatIcon from "@mui/icons-material/Chat";
 import PrintIcon from "@mui/icons-material/Print";
 import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import ZoomInIcon from "@mui/icons-material/ZoomIn";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import PhotoCameraIcon from "@mui/icons-material/PhotoCamera";
 
 import { getOrder, updateOrder, verifySlip } from "../../api/admin";
 const API = import.meta.env.VITE_API_URL || "/api";
@@ -33,16 +34,25 @@ export default function OrdersDetail() {
   const { id } = useParams();
   const nav = useNavigate();
   const theme = useTheme();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [edit, setEdit] = useState<any>({});
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [slipZoom, setSlipZoom] = useState(false);
 
   useEffect(() => {
-    getOrder(id!).then(d => { setOrder(d); setEdit(d); }).catch(()=>nav("/orders")).finally(() => setLoading(false));
+    loadOrder();
   }, [id]);
+
+  const loadOrder = () => {
+    getOrder(id!).then(d => { 
+      setOrder(d); 
+      setEdit(d); 
+    }).catch(()=>nav("/orders")).finally(() => setLoading(false));
+  };
 
   const onSave = async () => {
     setSaving(true);
@@ -50,7 +60,11 @@ export default function OrdersDetail() {
       const res = await updateOrder(id!, { orderStatus: edit.orderStatus, trackingNumber: edit.trackingNumber });
       setOrder(res); 
       alert("✅ บันทึกสำเร็จ");
-    } catch(e) { alert("Error saving"); } finally { setSaving(false); }
+    } catch(e) { 
+        alert("เกิดข้อผิดพลาดในการบันทึก"); 
+    } finally { 
+        setSaving(false); 
+    }
   };
 
   const onVerifySlip = async () => {
@@ -58,7 +72,38 @@ export default function OrdersDetail() {
       const res = await verifySlip(id!);
       setOrder(res.order); 
       alert(`ตรวจสอบแล้ว: ${res.slipOkResult?.success ? "✅ สลิปถูกต้อง" : "❌ สลิปไม่ผ่าน"}`);
-    } catch { alert("ตรวจสอบผิดพลาด"); }
+    } catch { 
+        alert("ตรวจสอบผิดพลาด"); 
+    }
+  };
+
+  const handleAdminUploadSlip = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("slip", file);
+
+    setUploading(true);
+    try {
+      const res = await fetch(`${API}/orders/${id}/upload-slip`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${localStorage.getItem("aw_token")}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setOrder(data.order);
+        alert("✅ อัปโหลดสลิปสำเร็จ และระบบได้ตรวจสอบข้อมูลเบื้องต้นแล้ว");
+      } else {
+        alert("❌ " + (data.error || "อัปโหลดไม่สำเร็จ"));
+      }
+    } catch (err) {
+      alert("❌ เกิดข้อผิดพลาดในการเชื่อมต่อ");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
 
   const onDelete = async () => {
@@ -94,13 +139,21 @@ export default function OrdersDetail() {
 
   if (loading || !order) return <Box p={4}><Skeleton variant="rectangular" height={200} /></Box>;
 
-  // Deadline Calculation
   const deadline = new Date(new Date(order.createdAt).getTime() + 24 * 60 * 60 * 1000);
   const isExpired = new Date() > deadline && order.paymentStatus === "WAITING";
   const activeStep = STEPS.indexOf(order.orderStatus);
 
   return (
     <Box p={{ xs: 2, md: 4 }} maxWidth={1200} mx="auto">
+      {/* Hidden File Input */}
+      <input 
+        type="file" 
+        accept="image/*" 
+        ref={fileInputRef} 
+        style={{ display: 'none' }} 
+        onChange={handleAdminUploadSlip} 
+      />
+
       <Stack direction="row" justifyContent="space-between" mb={2}>
         <Button startIcon={<ArrowBackIcon />} component={Link} to="/orders" sx={{ fontWeight: 700, color: 'text.secondary' }}>ย้อนกลับ</Button>
         <Button startIcon={<DeleteForeverIcon />} onClick={onDelete} color="error">ลบออเดอร์</Button>
@@ -118,13 +171,11 @@ export default function OrdersDetail() {
             </Box>
             <Stack direction="row" spacing={1.5}>
                 <Button variant="outlined" startIcon={<PrintIcon />} onClick={onPrintAddress}>พิมพ์ใบปะหน้า</Button>
-                {/* <Button variant="contained" startIcon={<ChatIcon />} disabled={!order.customerLineId}>ส่งข้อความ</Button> */}
             </Stack>
           </Stack>
 
           <Divider sx={{ my: 3 }} />
 
-          {/* Stepper Status */}
           <Box px={{ xs:0, md:4 }}>
               <Stepper activeStep={activeStep >= 0 ? activeStep : 0} alternativeLabel>
                   {STEPS.map((label) => (
@@ -190,7 +241,9 @@ export default function OrdersDetail() {
                   />
                </Grid>
                <Grid item xs={12} sm={4}>
-                  <Button variant="contained" fullWidth onClick={onSave} disabled={saving}>บันทึกเลขพัสดุ</Button>
+                  <Button variant="contained" fullWidth onClick={onSave} disabled={saving} startIcon={saving ? <CircularProgress size={20} color="inherit" /> : <SaveIcon />}>
+                    {saving ? "กำลังบันทึก" : "บันทึกเลขพัสดุ"}
+                  </Button>
                </Grid>
             </Grid>
           </Paper>
@@ -233,15 +286,41 @@ export default function OrdersDetail() {
                     </Box>
                 </Box>
 
-                <Button fullWidth variant="outlined" startIcon={<VerifiedIcon />} onClick={onVerifySlip} sx={{ mt: 2 }} color={order.slipOkResult?.success ? "success" : "primary"}>
-                  {order.slipOkResult?.success ? "ตรวจสอบแล้ว (ผ่าน)" : "ตรวจสอบสลิป (SlipOK)"}
-                </Button>
+                <Stack spacing={1} mt={2}>
+                    <Button 
+                        fullWidth 
+                        variant="contained" 
+                        startIcon={<VerifiedIcon />} 
+                        onClick={onVerifySlip} 
+                        color={order.slipOkResult?.success ? "success" : "primary"}
+                    >
+                      {order.slipOkResult?.success ? "ตรวจสอบแล้ว (ผ่าน)" : "ตรวจสอบสลิป (SlipOK)"}
+                    </Button>
+                    <Button 
+                        fullWidth 
+                        variant="outlined" 
+                        startIcon={<PhotoCameraIcon />} 
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploading}
+                    >
+                        {uploading ? "กำลังอัปโหลด..." : "เปลี่ยนรูปสลิปใหม่"}
+                    </Button>
+                </Stack>
               </Box>
             ) : (
-               <Box textAlign="center" py={4} bgcolor="#F5F5F5" borderRadius={2}>
+               <Box textAlign="center" py={4} bgcolor="#F5F5F5" borderRadius={2} border="2px dashed #ccc">
                    <AccessTimeIcon sx={{ fontSize: 40, color: 'text.secondary', mb: 1 }} />
                    <Typography color="text.secondary">ยังไม่มีการแนบสลิป</Typography>
-                   {isExpired && <Typography color="error" variant="caption">หมดเวลาชำระเงินแล้ว</Typography>}
+                   <Button 
+                        variant="contained" 
+                        startIcon={<CloudUploadIcon />} 
+                        sx={{ mt: 1 }}
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploading}
+                   >
+                        {uploading ? "กำลังอัปโหลด..." : "อัปโหลดสลิปแทนลูกค้า"}
+                   </Button>
+                   {isExpired && <Typography color="error" variant="caption" display="block" mt={1}>หมดเวลาชำระเงินแล้ว</Typography>}
                </Box>
             )}
           </Paper>
