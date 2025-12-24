@@ -65,6 +65,22 @@ export default function ReceivingList() {
     })();
   }, []);
 
+  // ✅ [NEW] ดึงชื่อผู้ใช้จาก Login (localStorage) มาใส่เป็นชื่อผู้รับอัตโนมัติ
+  useEffect(() => {
+    try {
+      // ลองหา Key ที่มักจะใช้เก็บ User
+      const stored = localStorage.getItem('user') || localStorage.getItem('admin') || localStorage.getItem('auth');
+      if (stored) {
+        const u = JSON.parse(stored);
+        // เลือก field ที่มีชื่อคน (name, username, firstName, etc.)
+        const name = u.name || u.username || u.firstName || u.user?.name || u.user?.username || "Admin";
+        setReceiverName(name);
+      }
+    } catch (err) {
+      console.log("Auto-fill receiver name failed:", err);
+    }
+  }, []);
+
   const view = useMemo(() => {
     const list = rows || [];
     if (!q) return list;
@@ -80,16 +96,12 @@ export default function ReceivingList() {
 
   // ✅ Helper: หาชื่อสินค้า (รองรับทั้ง object populate และ id string)
   const getProductName = (item: any) => {
-    // 1. ลองดูใน item ก่อน
     if (typeof item.product === 'object' && item.product?.name) return item.product.name;
     if (item.productName) return item.productName;
-
-    // 2. ถ้ามีแต่ ID ให้ไปหาใน list products หลัก
     const pid = typeof item.product === 'object' ? item.product?._id : item.product;
     const found = products.find(p => p._id === pid);
     if (found) return found.name;
-
-    return "Unknown Product"; // จนปัญญา
+    return "Unknown Product";
   };
 
   // ✅ Logic: เลือก PO แล้วดึงรายการสินค้ามาเติม (Auto-fill)
@@ -105,16 +117,12 @@ export default function ReceivingList() {
         const newItems: NewItem[] = [];
 
         selected.items.forEach((poItem: any) => {
-            // คำนวณยอดที่เหลือ (สั่ง - รับไปแล้ว)
             const ordered = poItem.quantity || 0;
             const received = poItem.receivedQuantity || 0;
             const remaining = ordered - received;
 
             if (remaining > 0) {
-                // หา Product ID (เผื่อเป็น object จาก populate)
                 const prodId = (typeof poItem.product === 'object' && poItem.product) ? poItem.product._id : (poItem.product || "");
-                
-                // หา Variant ID
                 let varId = "";
                 const product = products.find(p => p._id === prodId);
                 if (product && product.variants) {
@@ -123,8 +131,8 @@ export default function ReceivingList() {
                 }
 
                 newItems.push({
-                    productId: prodId, // ✅ ต้องไม่เป็น undefined
-                    variantId: varId,  // ✅ ต้องไม่เป็น undefined (เป็น "" แทน)
+                    productId: prodId,
+                    variantId: varId,
                     quantity: remaining,
                     unitCost: poItem.price || 0
                 });
@@ -154,26 +162,33 @@ export default function ReceivingList() {
         receiverName: receiverName.trim(),
         receiveDate: receiveDate ? new Date(receiveDate).toISOString() : undefined,
         items: validRows.map(it => ({
-          productId: it.productId,
+          product: it.productId, // ✅ [FIXED] ใช้ key 'product'
           variantId: it.variantId || undefined,
           quantity: Number(it.quantity || 0),
           unitCost: Number(it.unitCost || 0),
         }))
       };
+      
+      console.log("Sending Receiving Payload:", body);
+
       await createReceiving(body);
       setOpenCreate(false);
-      // Reset
-      setPo(""); setReceiverName(""); setReceiveDate(new Date().toISOString().split('T')[0]); setItems([{ productId: "", variantId: "", quantity: 1, unitCost: 0 }]);
+      
+      // Reset (พยายามดึงชื่อเดิมกลับมาใส่ใหม่หลังจาก reset)
+      setPo(""); 
+      // setReceiverName(""); // ไม่ต้อง reset ชื่อ เผื่อคีย์ต่อ
+      setReceiveDate(new Date().toISOString().split('T')[0]); 
+      setItems([{ productId: "", variantId: "", quantity: 1, unitCost: 0 }]);
       
       await load();
-      // รีโหลด List PO ด้วย เพื่อให้ยอด ReceivedQuantity อัปเดตทันที
       const pos = await listPO();
       setPoList(pos);
 
       setMsg({type:'success', text: "บันทึกรับเข้าสำเร็จ! (Stock & PO Updated)"});
       setTimeout(()=>setMsg(null), 3000);
     } catch (e:any) {
-      setMsg({type:'error', text: e?.message || "เกิดข้อผิดพลาดในการบันทึก"});
+      console.error(e);
+      setMsg({type:'error', text: e?.response?.data?.error || e?.message || "เกิดข้อผิดพลาดในการบันทึก"});
     } finally {
       setSaving(false);
     }
@@ -289,6 +304,7 @@ export default function ReceivingList() {
                 </TextField>
               </Grid>
               <Grid item xs={12} sm={6}>
+                 {/* ✅ Auto-filled จาก Login แต่แก้ไขได้ */}
                  <TextField label="ชื่อผู้รับของ (Receiver)" value={receiverName} onChange={e=>setReceiverName(e.target.value)} fullWidth required />
               </Grid>
               <Grid item xs={12} sm={6}>
@@ -302,7 +318,6 @@ export default function ReceivingList() {
               <Paper key={idx} variant="outlined" sx={{ p: 2, mb: 1.5, borderRadius: 2, bgcolor: '#fafafa' }}>
                 <Grid container spacing={2} alignItems="center">
                   <Grid item xs={12} sm={5}>
-                    {/* ✅ FIX MUI Error: ใช้ value={it.productId || ""} เสมอ */}
                     <TextField
                       select label="สินค้า" value={it.productId || ""} onChange={e=>{
                         updateRow(idx, { productId: e.target.value, variantId: "" });
@@ -313,7 +328,6 @@ export default function ReceivingList() {
                     </TextField>
                   </Grid>
                   <Grid item xs={12} sm={3}>
-                    {/* ✅ FIX MUI Error: ใช้ value={it.variantId || ""} เสมอ */}
                     <TextField
                       select label="Variant" value={it.variantId || ""} onChange={e=>updateRow(idx, { variantId: e.target.value })}
                       fullWidth size="small" disabled={!it.productId}
@@ -359,7 +373,6 @@ export default function ReceivingList() {
               </TableHead>
               <TableBody>
                 {selectedReceiving.items?.map((item: any, i:number) => (
-                    // ✅ ใช้ Helper Function หาชื่อสินค้า
                     <TableRow key={i}>
                         <TableCell>{getProductName(item)}</TableCell>
                         <TableCell>{item.size} {item.color}</TableCell>

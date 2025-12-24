@@ -83,7 +83,7 @@ export default function POList() {
   const variantsOf = (pid: string): Variant[] => (products.find(p => p._id === pid)?.variants || []);
   const totalAmount = useMemo(() => items.reduce((s, it) => s + (Number(it.unitPrice || 0) * Number(it.quantity || 0)), 0), [items]);
 
-  // ✅ Helper: หาชื่อสินค้าสำหรับ PO (เผื่อ Backend ไม่ Populate หรือไม่ได้เก็บ name)
+  // ✅ Helper: หาชื่อสินค้าสำหรับ PO
   const getProductName = (item: any) => {
     if (typeof item.product === 'object' && item.product?.name) return item.product.name;
     if (item.productName) return item.productName;
@@ -101,18 +101,21 @@ export default function POList() {
 
     setSaving(true); setMsg(null);
     try {
-      // เตรียมข้อมูลสินค้าให้ครบถ้วน รวมถึง size/color เพื่อให้ backend บันทึกได้
+      // ✅ คำนวณยอดรวมที่ Frontend เพื่อส่งไปบันทึก
+      const calculatedTotal = validRows.reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.unitPrice || 0)), 0);
+
+      // เตรียมข้อมูลสินค้าให้ครบถ้วน แก้ไขชื่อ Field ให้ตรงกับ Backend Model
       const payloadItems = validRows.map(it => {
         const product = products.find(p => p._id === it.productId);
         const variant = product?.variants.find(v => v._id === it.variantId);
         return {
-          productId: it.productId,
+          product: it.productId,           // ✅ ถูกต้อง: PO Model ใช้ 'product'
           variantId: it.variantId || undefined,
-          productName: product?.name || "", // ส่งชื่อไปด้วย
-          size: variant?.size || "",       // ส่ง Size
-          color: variant?.color || "",     // ส่ง Color
+          productName: product?.name || "", 
+          size: variant?.size || "",       
+          color: variant?.color || "",     
           quantity: Number(it.quantity || 0),
-          unitPrice: Number(it.unitPrice || 0)
+          price: Number(it.unitPrice || 0) // ✅ ถูกต้อง: POItem Model ใช้ 'price' (แต่ state เราใช้ unitPrice)
         };
       });
 
@@ -120,7 +123,8 @@ export default function POList() {
         supplierName: supplierName.trim(),
         orderDate: orderDate ? new Date(orderDate).toISOString() : undefined,
         expectedReceiveDate: expectedReceiveDate ? new Date(expectedReceiveDate).toISOString() : undefined,
-        items: payloadItems
+        items: payloadItems,
+        totalAmount: calculatedTotal
       };
       
       await createPO(body);
