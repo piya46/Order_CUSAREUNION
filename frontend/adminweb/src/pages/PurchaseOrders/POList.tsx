@@ -1,33 +1,52 @@
-// src/pages/POList.tsx
 import { useEffect, useMemo, useState } from "react";
 import {
   Box, Paper, Typography, Stack, TextField, Table, TableHead, TableRow,
   TableCell, TableBody, Button, Dialog, DialogTitle, DialogContent, DialogActions,
-  MenuItem, IconButton, Alert
+  MenuItem, IconButton, Alert, Chip, Grid, Divider, Tooltip, InputAdornment
 } from "@mui/material";
-import AddBoxIcon from "@mui/icons-material/AddBox";
-import DeleteIcon from "@mui/icons-material/Delete";
-import RefreshIcon from "@mui/icons-material/Refresh";
-import { listPO, createPO, exportPOUrl, listInventory, type PO, type Product, type Variant } from "../../api/admin";
+import { motion, AnimatePresence } from "framer-motion";
 
+// Icons
+import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import FileDownloadIcon from "@mui/icons-material/FileDownload";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import SearchIcon from "@mui/icons-material/Search";
+import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import TableViewIcon from '@mui/icons-material/TableView';
+
+import { listPO, createPO, downloadPO, listInventory, type PO, type Product, type Variant } from "../../api/admin";
+
+// Types
 type NewItem = { productId: string; variantId?: string; quantity: number; unitPrice?: number };
+
+// Helpers
+const formatTHB = (amount: number) => new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' }).format(amount);
+const formatDate = (date: string) => new Date(date).toLocaleDateString("th-TH", { year: 'numeric', month: 'short', day: 'numeric' });
 
 export default function POList() {
   const [rows, setRows] = useState<PO[] | null>(null);
   const [q, setQ] = useState("");
 
-  const [open, setOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  // Dialogs
+  const [openCreate, setOpenCreate] = useState(false);
+  const [openDetail, setOpenDetail] = useState(false);
+  const [selectedPO, setSelectedPO] = useState<PO | null>(null);
 
-  // form state
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ type: 'success' | 'error' | 'info', text: string } | null>(null);
+
+  // Form State
   const [supplierName, setSupplierName] = useState("");
-  const [orderDate, setOrderDate] = useState<string>("");
+  const [orderDate, setOrderDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [expectedReceiveDate, setExpectedReceiveDate] = useState<string>("");
   const [items, setItems] = useState<NewItem[]>([{ productId: "", variantId: "", quantity: 1, unitPrice: 0 }]);
 
   const [products, setProducts] = useState<Product[]>([]);
 
+  // Load Data
   const load = async () => {
     try {
       const data = await listPO();
@@ -36,16 +55,14 @@ export default function POList() {
       setRows([]);
     }
   };
-  useEffect(()=>{ load(); }, []);
+  useEffect(() => { load(); }, []);
 
   useEffect(() => {
     (async () => {
       try {
         const inv = await listInventory();
         setProducts(inv);
-      } catch {
-        setProducts([]);
-      }
+      } catch { setProducts([]); }
     })();
   }, []);
 
@@ -53,25 +70,24 @@ export default function POList() {
     const list = rows || [];
     if (!q) return list;
     const qq = q.toLowerCase();
-    return list.filter(p => p.poNumber.toLowerCase().includes(qq) || (p.supplierName||"").toLowerCase().includes(qq));
+    return list.filter(p => p.poNumber.toLowerCase().includes(qq) || (p.supplierName || "").toLowerCase().includes(qq));
   }, [rows, q]);
 
+  // Logic
   const addRow = () => setItems(s => [...s, { productId: "", variantId: "", quantity: 1, unitPrice: 0 }]);
-  const removeRow = (idx: number) => setItems(s => s.filter((_,i)=>i!==idx));
+  const removeRow = (idx: number) => setItems(s => s.filter((_, i) => i !== idx));
 
   const updateRow = (idx: number, patch: Partial<NewItem>) => setItems(s => {
     const d = [...s]; d[idx] = { ...d[idx], ...patch }; return d;
   });
 
   const variantsOf = (pid: string): Variant[] => (products.find(p => p._id === pid)?.variants || []);
-
-  const totalAmount = useMemo(() => items.reduce((s, it) => s + (Number(it.unitPrice||0) * Number(it.quantity||0)), 0), [items]);
+  const totalAmount = useMemo(() => items.reduce((s, it) => s + (Number(it.unitPrice || 0) * Number(it.quantity || 0)), 0), [items]);
 
   const save = async () => {
-    // basic validate
-    if (!supplierName.trim()) { setMsg("กรุณากรอกชื่อซัพพลายเออร์"); return; }
+    if (!supplierName.trim()) { setMsg({ type: "error", text: "กรุณากรอกชื่อ Supplier" }); return; }
     const validRows = items.filter(it => it.productId && Number(it.quantity) > 0);
-    if (!validRows.length) { setMsg("กรุณาเพิ่มรายการสินค้าอย่างน้อย 1 แถว"); return; }
+    if (!validRows.length) { setMsg({ type: "error", text: "กรุณาเพิ่มรายการสินค้าอย่างน้อย 1 แถว" }); return; }
 
     setSaving(true); setMsg(null);
     try {
@@ -87,122 +103,257 @@ export default function POList() {
         }))
       };
       await createPO(body);
-      setOpen(false);
-      setSupplierName(""); setOrderDate(""); setExpectedReceiveDate(""); setItems([{ productId: "", variantId: "", quantity: 1, unitPrice: 0 }]);
+      setOpenCreate(false);
+      // Reset Form
+      setSupplierName(""); setOrderDate(new Date().toISOString().split('T')[0]);
+      setExpectedReceiveDate(""); setItems([{ productId: "", variantId: "", quantity: 1, unitPrice: 0 }]);
+      
       await load();
-      setMsg("สร้าง PO สำเร็จ");
-    } catch (e:any) {
-      setMsg(e?.message || "สร้าง PO ไม่สำเร็จ");
+      setMsg({ type: "success", text: "สร้าง PO สำเร็จ!" });
+      setTimeout(() => setMsg(null), 3000);
+    } catch (e: any) {
+      setMsg({ type: "error", text: e?.message || "สร้าง PO ไม่สำเร็จ" });
     } finally {
       setSaving(false);
     }
   };
 
-  const openExport = (id: string, type: "pdf" | "excel") => {
-    const url = exportPOUrl(id, type);
-    window.open(url, "_blank");
+  // ✅ New Export Handler
+  const handleExport = async (id: string, type: "pdf" | "excel") => {
+    try {
+      setMsg({ type: 'info', text: 'กำลังดาวน์โหลด...' });
+      await downloadPO(id, type);
+      setMsg(null);
+    } catch (err) {
+      console.error(err);
+      setMsg({ type: 'error', text: 'เกิดข้อผิดพลาดในการดาวน์โหลด' });
+    }
+  };
+
+  const getStatusChip = (status: string) => {
+    let color: "default" | "primary" | "secondary" | "error" | "info" | "success" | "warning" = "default";
+    switch (status) {
+      case 'DRAFT': color = "default"; break;
+      case 'ORDERED': color = "info"; break;
+      case 'RECEIVED': color = "success"; break;
+      case 'CANCELLED': color = "error"; break;
+      case 'PARTIAL': color = "warning"; break;
+    }
+    return <Chip label={status} color={color} size="small" variant="filled" sx={{ fontWeight: 'bold' }} />;
   };
 
   return (
-    <Box p={{ xs:2, md:3 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-        <Stack direction="row" spacing={1.25} alignItems="center">
-          <Typography variant="h5" fontWeight={900}>Purchase Orders</Typography>
-          <Button startIcon={<AddBoxIcon />} variant="contained" onClick={() => setOpen(true)}>สร้าง PO</Button>
-          <Button startIcon={<RefreshIcon />} variant="outlined" onClick={load}>รีเฟรช</Button>
+    <Box p={{ xs: 2, md: 4 }} sx={{ bgcolor: '#f4f6f8', minHeight: '100vh' }}>
+      
+      {/* Header */}
+      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems="center" mb={3} spacing={2}>
+        <Box>
+          <Typography variant="h4" fontWeight={800} color="primary.main">Purchase Orders</Typography>
+          <Typography variant="body2" color="text.secondary">จัดการใบสั่งซื้อสินค้าและสถานะการรับของ</Typography>
+        </Box>
+        <Stack direction="row" spacing={1.5}>
+          <Button startIcon={<RefreshIcon />} variant="outlined" onClick={load} sx={{ borderRadius: 2 }}>รีเฟรช</Button>
+          <Button startIcon={<AddCircleOutlineIcon />} variant="contained" onClick={() => setOpenCreate(true)} sx={{ borderRadius: 2, boxShadow: 2 }}>
+            สร้าง PO ใหม่
+          </Button>
         </Stack>
-        <TextField size="small" placeholder="ค้นหา (เลข/ซัพพลายเออร์)" value={q} onChange={e=>setQ(e.target.value)} />
       </Stack>
 
-      {msg && <Alert sx={{ mb: 1.5 }} severity="info">{msg}</Alert>}
+      {/* Filter & Message */}
+      <Paper elevation={0} sx={{ p: 2, mb: 3, borderRadius: 3, border: '1px solid #e0e0e0', display: 'flex', alignItems: 'center' }}>
+        <TextField 
+          size="small" 
+          placeholder="ค้นหา (เลข PO / Supplier)..." 
+          value={q} 
+          onChange={e=>setQ(e.target.value)} 
+          fullWidth
+          InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon color="action" /></InputAdornment> }}
+          sx={{ maxWidth: 400 }}
+        />
+      </Paper>
 
-      <Paper elevation={3} sx={{ p: 0, borderRadius: 3, overflow: "hidden" }}>
-        <Table size="small">
-          <TableHead>
+      {msg && <Alert sx={{ mb: 2, borderRadius: 2 }} severity={msg.type} onClose={()=>setMsg(null)}>{msg.text}</Alert>}
+
+      {/* Table */}
+      <Paper elevation={0} sx={{ borderRadius: 3, overflow: "hidden", border: '1px solid #eaeff1', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
+        <Table>
+          <TableHead sx={{ bgcolor: '#f9fafb' }}>
             <TableRow>
-              <TableCell>เลข PO</TableCell>
-              <TableCell>ซัพพลายเออร์</TableCell>
-              <TableCell>สถานะ</TableCell>
-              <TableCell>สั่งเมื่อ</TableCell>
-              <TableCell>คาดรับ</TableCell>
-              <TableCell align="right">ยอดรวม</TableCell>
-              <TableCell width={160}></TableCell>
+              <TableCell sx={{ fontWeight: 'bold', color: 'text.secondary' }}>เลข PO</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', color: 'text.secondary' }}>Supplier</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', color: 'text.secondary' }}>สถานะ</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', color: 'text.secondary' }}>สั่งเมื่อ</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', color: 'text.secondary' }}>คาดรับ</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 'bold', color: 'text.secondary' }}>ยอดรวม</TableCell>
+              <TableCell align="center" width={180} sx={{ fontWeight: 'bold', color: 'text.secondary' }}>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {view.map(p => (
-              <TableRow key={p._id} hover>
-                <TableCell>{p.poNumber}</TableCell>
-                <TableCell>{p.supplierName || "-"}</TableCell>
-                <TableCell>{p.status}</TableCell>
-                <TableCell>{p.orderDate ? new Date(p.orderDate).toLocaleDateString("th-TH") : "-"}</TableCell>
-                <TableCell>{p.expectedReceiveDate ? new Date(p.expectedReceiveDate).toLocaleDateString("th-TH") : "-"}</TableCell>
-                <TableCell align="right">{(p.totalAmount||0).toLocaleString()} บาท</TableCell>
-                <TableCell align="right">
-                  <Stack direction="row" spacing={1} justifyContent="flex-end">
-                    <Button size="small" variant="outlined" onClick={()=>openExport(p._id, "pdf")}>PDF</Button>
-                    <Button size="small" variant="outlined" onClick={()=>openExport(p._id, "excel")}>Excel</Button>
-                  </Stack>
-                </TableCell>
-              </TableRow>
-            ))}
+            <AnimatePresence>
+              {view.map(p => (
+                <TableRow component={motion.tr} initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} key={p._id} hover>
+                  <TableCell sx={{ fontWeight: 600 }}>{p.poNumber}</TableCell>
+                  <TableCell>{p.supplierName || "-"}</TableCell>
+                  <TableCell>{getStatusChip(p.status)}</TableCell>
+                  <TableCell>{p.orderDate ? formatDate(p.orderDate) : "-"}</TableCell>
+                  <TableCell>{p.expectedReceiveDate ? formatDate(p.expectedReceiveDate) : "-"}</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 'bold', color: 'success.main' }}>{formatTHB(p.totalAmount || 0)}</TableCell>
+                  <TableCell align="center">
+                    <Stack direction="row" spacing={0.5} justifyContent="center">
+                      <Tooltip title="รายละเอียด">
+                        <IconButton size="small" color="primary" onClick={()=>{ setSelectedPO(p); setOpenDetail(true); }}>
+                          <VisibilityIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="ดาวน์โหลด PDF">
+                        <IconButton size="small" color="error" onClick={()=>handleExport(p._id, "pdf")}>
+                          <PictureAsPdfIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="ดาวน์โหลด Excel">
+                        <IconButton size="small" color="success" onClick={()=>handleExport(p._id, "excel")}>
+                          <TableViewIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Stack>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </AnimatePresence>
             {view.length === 0 && (
-              <TableRow><TableCell colSpan={7}><Box p={2}><Typography color="text.secondary">ไม่พบข้อมูล</Typography></Box></TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} align="center" sx={{ py: 4, color: 'text.secondary' }}>ไม่พบข้อมูล</TableCell></TableRow>
             )}
           </TableBody>
         </Table>
       </Paper>
 
-      {/* Create PO dialog */}
-      <Dialog open={open} onClose={()=>setOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle>สร้าง PO ใหม่</DialogTitle>
-        <DialogContent>
-          <Stack spacing={1.2} sx={{ mt: .5 }}>
-            <TextField label="ซัพพลายเออร์" value={supplierName} onChange={e=>setSupplierName(e.target.value)} />
-            <Stack direction={{ xs:"column", md:"row" }} spacing={1}>
-              <TextField label="วันที่สั่ง" type="date" InputLabelProps={{ shrink: true }} value={orderDate} onChange={e=>setOrderDate(e.target.value)} fullWidth />
-              <TextField label="คาดรับ" type="date" InputLabelProps={{ shrink: true }} value={expectedReceiveDate} onChange={e=>setExpectedReceiveDate(e.target.value)} fullWidth />
-            </Stack>
+      {/* --- Create PO Dialog --- */}
+      <Dialog open={openCreate} onClose={()=>setOpenCreate(false)} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle sx={{ bgcolor: 'primary.main', color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <LocalShippingIcon /> สร้างใบสั่งซื้อ (Create PO)
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          <Box sx={{ mt: 1 }}>
+            <Grid container spacing={2}>
+              <Grid item xs={12}>
+                <TextField label="Supplier Name (ชื่อซัพพลายเออร์)" value={supplierName} onChange={e=>setSupplierName(e.target.value)} fullWidth required />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField label="วันที่สั่ง (Order Date)" type="date" InputLabelProps={{ shrink: true }} value={orderDate} onChange={e=>setOrderDate(e.target.value)} fullWidth />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField label="วันคาดว่าจะรับ (Expected)" type="date" InputLabelProps={{ shrink: true }} value={expectedReceiveDate} onChange={e=>setExpectedReceiveDate(e.target.value)} fullWidth />
+              </Grid>
+            </Grid>
 
-            <Typography fontWeight={800} sx={{ mt: 1 }}>รายการ</Typography>
+            <Divider sx={{ my: 3 }}><Chip label="รายการสินค้า" /></Divider>
+
             {items.map((it, idx) => (
-              <Stack key={idx} direction={{ xs:"column", md:"row" }} spacing={1} alignItems="center">
-                <TextField
-                  select label="สินค้า" value={it.productId} onChange={e=>{
-                    const pid = e.target.value;
-                    updateRow(idx, { productId: pid, variantId: "" });
-                  }} sx={{ minWidth: 240 }}
-                >
-                  <MenuItem value="">— เลือกสินค้า —</MenuItem>
-                  {products.map(p => <MenuItem key={p._id} value={p._id}>{p.name}</MenuItem>)}
-                </TextField>
-                <TextField
-                  select label="ตัวเลือก (Variant)" value={it.variantId || ""} onChange={e=>updateRow(idx, { variantId: e.target.value })}
-                  sx={{ minWidth: 220 }}
-                  disabled={!it.productId}
-                >
-                  <MenuItem value="">(ไม่ระบุ)</MenuItem>
-                  {variantsOf(it.productId).map(v => (
-                    <MenuItem key={v._id || `${v.size}-${v.color||'-'}`} value={v._id || `${v.size}|${v.color||'-'}`}>
-                      {v.size}{v.color ? ` / ${v.color}` : ""} — ฿{(v.price||0).toLocaleString()}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <TextField label="จำนวน" type="number" sx={{ width: 130 }} value={it.quantity} onChange={e=>updateRow(idx, { quantity: Number(e.target.value||0) })} />
-                <TextField label="ราคาต่อหน่วย" type="number" sx={{ width: 160 }} value={it.unitPrice ?? 0} onChange={e=>updateRow(idx, { unitPrice: Number(e.target.value||0) })} />
-                <IconButton onClick={()=>removeRow(idx)} color="error"><DeleteIcon /></IconButton>
-              </Stack>
+              <Paper key={idx} variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2, bgcolor: '#fafafa' }}>
+                <Grid container spacing={2} alignItems="center">
+                  <Grid item xs={12} sm={4}>
+                    <TextField
+                      select label="เลือกสินค้า" value={it.productId} fullWidth size="small"
+                      onChange={e=>{ updateRow(idx, { productId: e.target.value, variantId: "" }); }}
+                    >
+                      <MenuItem value="">— เลือกสินค้า —</MenuItem>
+                      {products.map(p => <MenuItem key={p._id} value={p._id}>{p.name}</MenuItem>)}
+                    </TextField>
+                  </Grid>
+                  <Grid item xs={12} sm={3}>
+                    <TextField
+                      select label="ตัวเลือก (Variant)" value={it.variantId || ""} fullWidth size="small"
+                      disabled={!it.productId}
+                      onChange={e=>updateRow(idx, { variantId: e.target.value })}
+                    >
+                      <MenuItem value="">(ไม่ระบุ)</MenuItem>
+                      {variantsOf(it.productId).map(v => (
+                        <MenuItem key={v._id || `${v.size}-${v.color}`} value={v._id || `${v.size}|${v.color}`}>
+                          {v.size}{v.color ? ` / ${v.color}` : ""} — {formatTHB(v.price||0)}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  </Grid>
+                  <Grid item xs={6} sm={2}>
+                    <TextField label="จำนวน" type="number" size="small" fullWidth value={it.quantity} onChange={e=>updateRow(idx, { quantity: Number(e.target.value) })} />
+                  </Grid>
+                  <Grid item xs={6} sm={2}>
+                    <TextField label="ราคา/หน่วย" type="number" size="small" fullWidth value={it.unitPrice} onChange={e=>updateRow(idx, { unitPrice: Number(e.target.value) })} />
+                  </Grid>
+                  <Grid item xs={12} sm={1} display="flex" justifyContent="center">
+                    <IconButton onClick={()=>removeRow(idx)} color="error"><DeleteOutlineIcon /></IconButton>
+                  </Grid>
+                </Grid>
+              </Paper>
             ))}
-            <Button startIcon={<AddBoxIcon />} onClick={addRow} variant="outlined">เพิ่มแถว</Button>
+            <Button startIcon={<AddCircleOutlineIcon />} onClick={addRow} variant="outlined" sx={{ mt: 1, borderStyle: 'dashed' }} fullWidth>
+              เพิ่มรายการสินค้า
+            </Button>
 
-            <Alert severity="info">ยอดรวมโดยประมาณ: <b>{totalAmount.toLocaleString()} บาท</b></Alert>
-          </Stack>
+            <Box sx={{ mt: 3, p: 2, bgcolor: 'primary.light', borderRadius: 2, color: 'primary.contrastText', display: 'flex', justifyContent: 'space-between' }}>
+              <Typography variant="h6">ยอดรวมสุทธิ</Typography>
+              <Typography variant="h6" fontWeight="bold">{formatTHB(totalAmount)}</Typography>
+            </Box>
+          </Box>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={()=>setOpen(false)}>ยกเลิก</Button>
-          <Button onClick={save} variant="contained" disabled={saving}>{saving ? "กำลังบันทึก…" : "บันทึก"}</Button>
+        <DialogActions sx={{ p: 3 }}>
+          <Button onClick={()=>setOpenCreate(false)}>ยกเลิก</Button>
+          <Button onClick={save} variant="contained" size="large" disabled={saving}>
+            {saving ? "กำลังบันทึก..." : "ยืนยันการสร้าง PO"}
+          </Button>
         </DialogActions>
       </Dialog>
+
+      {/* --- Detail Dialog --- */}
+      <Dialog open={openDetail} onClose={()=>setOpenDetail(false)} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle sx={{ borderBottom: '1px solid #eee' }}>
+            รายละเอียด PO: <b>{selectedPO?.poNumber}</b>
+            <Chip label={selectedPO?.status} size="small" sx={{ ml: 2 }} color="primary" variant="outlined" />
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          {selectedPO && (
+            <Stack spacing={2} sx={{ mt: 2 }}>
+              <Grid container spacing={2}>
+                <Grid item xs={6}><Typography variant="body2" color="text.secondary">Supplier:</Typography> <Typography variant="body1" fontWeight={600}>{selectedPO.supplierName}</Typography></Grid>
+                <Grid item xs={6}><Typography variant="body2" color="text.secondary">Order Date:</Typography> <Typography variant="body1">{formatDate(selectedPO.orderDate)}</Typography></Grid>
+              </Grid>
+              
+              <Divider textAlign="left" sx={{ my: 2 }}>รายการสินค้า</Divider>
+              
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ bgcolor: '#f5f5f5' }}>
+                     <TableCell>สินค้า</TableCell>
+                     <TableCell>Spec</TableCell>
+                     <TableCell align="right">จำนวน</TableCell>
+                     <TableCell align="right">ราคา/หน่วย</TableCell>
+                     <TableCell align="right">รวม</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {selectedPO.items?.map((item: any, i: number) => (
+                    <TableRow key={i}>
+                      <TableCell>{item.productName || "Product"}</TableCell>
+                      <TableCell>{item.size} {item.color}</TableCell>
+                      <TableCell align="right">{item.quantity}</TableCell>
+                      <TableCell align="right">{formatTHB(item.price || 0)}</TableCell>
+                      <TableCell align="right">{formatTHB((item.price||0) * (item.quantity||0))}</TableCell>
+                    </TableRow>
+                  ))}
+                  <TableRow>
+                    <TableCell colSpan={4} align="right" sx={{ fontWeight: 'bold' }}>Total</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 'bold', color: 'primary.main' }}>{formatTHB(selectedPO.totalAmount || 0)}</TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={()=>setOpenDetail(false)}>ปิด</Button>
+        </DialogActions>
+      </Dialog>
+
     </Box>
   );
 }

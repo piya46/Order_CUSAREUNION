@@ -10,21 +10,26 @@ exports.create = async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
+    // 1. Validate PO (ถ้ามีการอ้างอิง)
+    if (req.body.po) {
+      const poExists = await PurchaseOrder.findById(req.body.po).session(session);
+      if (!poExists) {
+        throw new Error(`ไม่พบใบสั่งซื้อ (PO) ที่ระบุ: ${req.body.po}`);
+      }
+    }
+
     const receiving = new Receiving(req.body);
     receiving.receivingNumber = generateReceivingNumber();
     
-    // 1. บันทึกใบรับของ
+    // 2. บันทึกใบรับของ (Save Receiving Doc)
     await receiving.save({ session });
 
-    // 2. วนลูปอัปเดตสต็อกสินค้าทีละรายการ
-    // เช็คว่ามี items ส่งมาหรือไม่
+    // 3. วนลูปอัปเดต Stock สินค้า (Update Inventory)
     if (receiving.items && receiving.items.length > 0) {
       for (const item of receiving.items) {
         if (item.quantity > 0) {
-          // ค้นหาและอัปเดตสต็อกสินค้า
-          // ใช้ arrayFilters เพื่อเจาะจง variant ที่ถูกต้อง หรือถ้าไม่มี variant ก็ข้ามไป
-          // หมายเหตุ: กรณีนี้สมมติว่า Frontend ส่ง variantId มา หรือถ้าใช้ size/color ต้องปรับ query ให้ตรง
-          
+          // Query เจาะจง Variant เพื่อความแม่นยำ
+          // ถ้า frontend ส่ง variantId มาให้ใช้ variantId, ถ้าไม่ ให้ใช้ size/color
           const query = item.variantId 
             ? { _id: item.product, "variants._id": item.variantId }
             : { _id: item.product, "variants.size": item.size, "variants.color": item.color };
@@ -34,17 +39,17 @@ exports.create = async (req, res, next) => {
           const updatedProduct = await Product.findOneAndUpdate(query, update, { new: true, session });
           
           if (!updatedProduct) {
-             // ถ้าหาไม่เจอ อาจเป็นเพราะข้อมูลสินค้าไม่ตรง หรือถูกลบไปแล้ว
-             // ใน transaction ควร throw error เพื่อ rollback ทั้งหมด
-             throw new Error(`ไม่พบสินค้าหรือตัวเลือกสินค้า (Product ID: ${item.product})`);
+             // ถ้าหาไม่เจอ ให้ throw error เพื่อ rollback transaction ทั้งหมดป้องกันข้อมูล Stock เพี้ยน
+             throw new Error(`ไม่พบสินค้าหรือตัวเลือกสินค้า (Product ID: ${item.product}) - กรุณาตรวจสอบข้อมูลสินค้า`);
           }
         }
       }
     }
 
-    // 3. อัปเดตสถานะ PO (ถ้ามีการอ้างอิง)
+    // 4. อัปเดตสถานะ PO (Update PO Status)
     if (receiving.po) {
-        // อัปเดตสถานะ PO เป็น RECEIVED
+        // เบื้องต้นปรับเป็น RECEIVED (รับแล้ว) 
+        // *อนาคตสามารถเพิ่ม Logic เช็คจำนวนรับ vs จำนวนสั่ง เพื่อปรับเป็น PARTIAL ได้
         await PurchaseOrder.findByIdAndUpdate(
             receiving.po, 
             { status: 'RECEIVED' }, 
@@ -55,6 +60,7 @@ exports.create = async (req, res, next) => {
     await session.commitTransaction();
     session.endSession();
 
+    // 5. Audit Log (บันทึกหลัง Transaction สำเร็จ)
     await auditLogService.log({
       user: req.user?.id,
       action: 'RECEIVING_CREATE',
@@ -72,7 +78,11 @@ exports.create = async (req, res, next) => {
 
 exports.getAll = async (req, res, next) => {
   try {
-    const receivings = await Receiving.find();
+    // Populate ข้อมูลสินค้าเบื้องต้นเพื่อให้ Frontend แสดงชื่อได้เลย ไม่ต้องยิง API ซ้ำ
+    const receivings = await Receiving.find()
+      .populate('items.product', 'name productCode images')
+      .populate('po', 'poNumber supplierName') // Populate PO info
+      .sort({ createdAt: -1 });
 
     await auditLogService.log({
       user: req.user?.id,
@@ -87,7 +97,10 @@ exports.getAll = async (req, res, next) => {
 
 exports.getOne = async (req, res, next) => {
   try {
-    const receiving = await Receiving.findById(req.params.id);
+    const receiving = await Receiving.findById(req.params.id)
+      .populate('items.product')
+      .populate('po');
+
     if (!receiving) return res.status(404).json({ error: 'Receiving not found' });
 
     await auditLogService.log({
@@ -104,6 +117,7 @@ exports.getOne = async (req, res, next) => {
 exports.update = async (req, res, next) => {
   try {
     const before = await Receiving.findById(req.params.id).lean();
+    // การแก้ไขใบรับของอาจกระทบ Stock ควรระวัง (ในที่นี้ update แค่ field ทั่วไปก่อน)
     const receiving = await Receiving.findByIdAndUpdate(req.params.id, req.body, { new: true });
 
     await auditLogService.log({
@@ -120,6 +134,8 @@ exports.update = async (req, res, next) => {
 exports.delete = async (req, res, next) => {
   try {
     const before = await Receiving.findById(req.params.id).lean();
+    // การลบใบรับของ ต้องพิจารณาว่าจะ Rollback Stock ไหม? 
+    // ในที่นี้ลบเอกสารอย่างเดียว (Soft logic) หรือถ้าจะ Rollback ต้องเขียน Transaction เหมือนตอน Create
     await Receiving.findByIdAndDelete(req.params.id);
 
     await auditLogService.log({
@@ -135,7 +151,7 @@ exports.delete = async (req, res, next) => {
 
 exports.exportReceiving = async (req, res, next) => {
   try {
-    const receiving = await Receiving.findById(req.params.id);
+    const receiving = await Receiving.findById(req.params.id).populate('items.product');
     if (!receiving) return res.status(404).json({ error: 'Receiving not found' });
 
     await auditLogService.log({

@@ -1,4 +1,5 @@
 import api from '../lib/axios';
+
 /* ============================ Auth ============================ */
 export async function adminLogin(username: string, password: string) {
   const { data } = await api.post('/users/login', { username, password });
@@ -6,7 +7,6 @@ export async function adminLogin(username: string, password: string) {
 }
 export async function adminLogout() { try { await api.post('/users/logout'); } catch {} }
 
-/* ✅ NEW: verify password (ปลดล็อกแก้ไข) */
 export async function verifyMyPassword(password: string) {
   const { data } = await api.post('/users/verify-password', { password });
   return !!data?.ok;
@@ -32,7 +32,7 @@ export type Order = {
   trackingNumber?: string;
   slipReviewCount?: number;
   paymentSlipFilename?: string;
-  statusTimeline?: StatusTimelineEntry[];   // ✅ NEW
+  statusTimeline?: StatusTimelineEntry[];
   createdAt: string;
   updatedAt?: string;
 };
@@ -66,7 +66,6 @@ export async function retrySlip(id: string, file: File) {
   return data as { order: Order; slipOkResult?: { success: boolean; message?: string } };
 }
 
-/* ✅ NEW: Tracking template / import */
 export function trackingTemplateUrl() {
   return `/api/orders/tracking-template`;
 }
@@ -80,44 +79,46 @@ export async function importTrackingNumbers(file: File) {
 }
 
 
-// ============================ Products / Inventory ============================
-
-// ถ้าโปรเจ็กต์คุณยังไม่มี type เหล่านี้ ให้เพิ่มด้วย (ถ้ามีอยู่แล้ว ข้ามส่วนนี้ได้)
+/* ============================ Products / Inventory ============================ */
 export type Variant = {
-  _id?: string;
-  size?: string;
+  _id: string;
+  size: string;
   color?: string;
-  price?: number;
-  stock?: number;
+  price: number;
+  stock: number;
+  locked?: number;
 };
 export type Product = {
   _id: string;
+  productCode: string;
   name: string;
+  images?: string[];
   variants: Variant[];
   preorder?: boolean;
 };
 
-// ดึงสินค้าพร้อม variants มาใช้สร้าง PO
 export async function listInventory() {
-  // บางโปรเจ็กต์มี endpoint /inventory, บางโปรเจ็กต์ใช้ /products
   try {
-    const { data } = await api.get('/inventory');
+    const { data } = await api.get('/products'); // Backend ปกติใช้ /products
     return Array.isArray(data) ? (data as Product[]) : [];
   } catch {
-    const { data } = await api.get('/products');
-    return Array.isArray(data) ? (data as Product[]) : [];
+    return [];
   }
 }
 
-/* ============================ (อื่น ๆ คงเดิม) ============================ */
-// ... products / inventory / roles / po / receiving ตามไฟล์เดิม ...
 /* ============================ Purchasing (PO) ============================ */
 export type POItem = {
-  productId: string;
+  product?: string | Product; // รองรับทั้ง ID (ตอนส่งไป) และ Object (ตอนรับมา)
+  productId?: string;        // เผื่อไว้สำหรับบาง logic
+  productName?: string;      // ชื่อสินค้า (Flatten มาแล้วหรือมีใน response)
   variantId?: string;
+  size?: string;
+  color?: string;
   quantity: number;
-  unitPrice?: number;
+  unitPrice?: number;        // Backend อาจส่งมาเป็น price หรือ unitPrice
+  price?: number;
 };
+
 export type PO = {
   _id: string;
   poNumber: string;
@@ -127,53 +128,126 @@ export type PO = {
   expectedReceiveDate?: string;
   totalAmount?: number;
   items?: POItem[];
+  createdAt?: string;
 };
 
-export async function listPO()        { const { data } = await api.get('/purchase-orders'); return Array.isArray(data) ? data as PO[] : []; }
-export async function getPO(id: string) { const { data } = await api.get(`/purchase-orders/${id}`); return data as PO; }
-export async function createPO(body: Partial<PO> & { items?: POItem[] }) {
-  const { data } = await api.post('/purchase-orders', body); return data as PO;
+export async function listPO() { 
+  const { data } = await api.get('/purchase-orders'); 
+  return Array.isArray(data) ? data as PO[] : []; 
 }
+
+export async function getPO(id: string) { 
+  const { data } = await api.get(`/purchase-orders/${id}`); 
+  return data as PO; 
+}
+
+export async function createPO(body: Partial<PO> & { items?: any[] }) {
+  const { data } = await api.post('/purchase-orders', body); 
+  return data as PO;
+}
+
 export async function updatePO(id: string, body: Partial<PO>) {
-  const { data } = await api.put(`/purchase-orders/${id}`, body); return data as PO;
+  const { data } = await api.put(`/purchase-orders/${id}`, body); 
+  return data as PO;
 }
+
+// ✅ [FIX] เพิ่มฟังก์ชัน Download PO (Blob)
+export async function downloadPO(id: string, type: "pdf" | "excel") {
+  const { data } = await api.get(`/purchase-orders/${id}/export`, {
+    params: { type },
+    responseType: "blob", // สำคัญมาก
+  });
+  
+  const url = window.URL.createObjectURL(new Blob([data]));
+  const link = document.createElement("a");
+  link.href = url;
+  link.setAttribute("download", `PO-${id}.${type === 'excel' ? 'xlsx' : 'pdf'}`);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+// เก็บไว้เผื่อใช้แบบเก่า (แต่แนะนำให้ใช้ downloadPO ด้านบน)
 export function exportPOUrl(id: string, type: 'pdf'|'excel' = 'pdf') {
-  return `/api/purchase-orders/${id}/export?type=${type}`; // ใช้กับ window.open
+  return `${import.meta.env.VITE_API_URL || ''}/api/purchase-orders/${id}/export?type=${type}`;
 }
 
 /* ============================ Receiving ============================ */
 export type ReceivingItem = {
-  productId: string;
+  product?: string | Product;
+  productId?: string;
+  productName?: string;
   variantId?: string;
+  size?: string;
+  color?: string;
   quantity: number;
   unitCost?: number;
 };
+
 export type Receiving = {
   _id: string;
   receivingNumber: string;
-  po?: string; // id
+  po?: string | PO; // อาจจะเป็น Object PO ถ้า populate
   receiverName?: string;
   receiveDate?: string;
   status: 'COMPLETE'|'PARTIAL'|'REJECTED';
   items?: ReceivingItem[];
+  createdAt?: string;
 };
 
-export async function listReceiving() { const { data } = await api.get('/receivings'); return Array.isArray(data) ? data as Receiving[] : []; }
-export async function getReceiving(id: string) { const { data } = await api.get(`/receivings/${id}`); return data as Receiving; }
-export async function createReceiving(body: Partial<Receiving> & { items?: ReceivingItem[] }) {
-  // สมมติฝั่ง backend จะอัปเดตสต๊อกทันทีเมื่อสร้าง receiving สำเร็จ
+export async function listReceiving() { 
+  const { data } = await api.get('/receivings'); 
+  return Array.isArray(data) ? data as Receiving[] : []; 
+}
+
+export async function getReceiving(id: string) { 
+  const { data } = await api.get(`/receivings/${id}`); 
+  return data as Receiving; 
+}
+
+export async function createReceiving(body: Partial<Receiving> & { items?: any[] }) {
   const { data } = await api.post('/receivings', body);
   return data as Receiving;
 }
+
 export async function updateReceiving(id: string, body: Partial<Receiving>) {
   const { data } = await api.put(`/receivings/${id}`, body);
   return data as Receiving;
 }
-export function exportReceivingUrl(id: string, type: 'pdf'|'excel' = 'pdf') {
-  return `/api/receivings/${id}/export?type=${type}`;
+
+// ✅ [FIX] เพิ่มฟังก์ชัน Download Receiving (Blob)
+export async function downloadReceiving(id: string, type: "pdf" | "excel") {
+  const { data } = await api.get(`/receivings/${id}/export`, {
+    params: { type },
+    responseType: "blob",
+  });
+  
+  const url = window.URL.createObjectURL(new Blob([data]));
+  const link = document.createElement("a");
+  link.href = url;
+  link.setAttribute("download", `REC-${id}.${type === 'excel' ? 'xlsx' : 'pdf'}`);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
 }
 
-import { Issue } from '../types'; 
+export function exportReceivingUrl(id: string, type: 'pdf'|'excel' = 'pdf') {
+  return `${import.meta.env.VITE_API_URL || ''}/api/receivings/${id}/export?type=${type}`;
+}
+
+/* ============================ Issues ============================ */
+// import { Issue } from '../types'; // ถ้ามีไฟล์ types แยกให้ uncomment
+// หรือ define type ง่ายๆ ไว้ตรงนี้ถ้าไม่มีไฟล์แยก
+export type Issue = {
+  _id: string;
+  title: string;
+  description?: string;
+  status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  createdAt: string;
+};
 
 export async function listIssues() {
   const { data } = await api.get('/issues');
