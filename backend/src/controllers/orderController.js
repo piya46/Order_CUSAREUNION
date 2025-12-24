@@ -25,7 +25,6 @@ function nowInWindow(p) {
   return fromOk && toOk;
 }
 
-// ซื้อได้ต้อง active และถ้ากำหนดช่วงเวลาวางขายไว้ ต้องอยู่ในช่วง
 function canSellProduct(p) {
   if (p.isActive === false) return false;
   if (p.availableFrom || p.availableTo) return nowInWindow(p);
@@ -36,7 +35,7 @@ function canSellProduct(p) {
 const nstr = v => String(v ?? '').trim();
 const nnum = v => Number(v || 0);
 
-/** ล็อกสต๊อกแบบอะตอมมิก: stock -qty, locked +qty (เฉพาะ non-preorder) */
+/** ล็อกสต๊อก: stock -qty, locked +qty */
 async function lockStock(items) {
   for (const raw of items) {
     const item = {
@@ -62,14 +61,13 @@ async function lockStock(items) {
       }
     );
 
-    // ถ้าไม่ match แปลว่าสต๊อกไม่พอหรือไม่พบ variant
     if (res.modifiedCount === 0) {
-      throw new Error(`สต๊อกไม่พอหรือไม่พบไซส์/สี: ${item.size}/${item.color}`);
+      throw new Error(`สต๊อกไม่พอหรือสินค้าหมด: ${item.size}/${item.color}`);
     }
   }
 }
 
-/** ยืนยันการขาย: locked -qty (เฉพาะ non-preorder) */
+/** ยืนยันการขาย: locked -qty */
 async function confirmStock(items) {
   for (const raw of items) {
     const item = {
@@ -80,6 +78,7 @@ async function confirmStock(items) {
     };
     if (!item.qty) continue;
 
+    // ลดจาก locked อย่างเดียว (เพราะตอนจอง ย้ายจาก stock -> locked แล้ว)
     await Product.updateOne(
       { _id: item.product, preorder: { $ne: true } },
       { $inc: { 'variants.$[v].locked': -item.qty } },
@@ -88,7 +87,7 @@ async function confirmStock(items) {
   }
 }
 
-/** ยกเลิก/หมดอายุ: stock +qty, locked -qty (เฉพาะ non-preorder) */
+/** ยกเลิก/หมดอายุ: stock +qty, locked -qty */
 async function unlockStock(items) {
   for (const raw of items) {
     const item = {
@@ -107,23 +106,20 @@ async function unlockStock(items) {
           'variants.$[v].locked': -item.qty
         }
       },
+      // เช็ค locked >= qty เพื่อความปลอดภัย (กันติดลบ)
       { arrayFilters: [{ 'v.size': item.size, 'v.color': item.color, 'v.locked': { $gte: item.qty } }] }
     );
   }
 }
 
-const buildThaiPostUrl = tn => `https://track.thailandpost.co.th/?trackNumber=${encodeURIComponent(tn)}`;
-
-// role helper
 function isStaff(req) {
   const role = req.user?.role;
   return ['admin', 'manager', 'account', 'shipping'].includes(role);
 }
 
-/* ----------------------- CREATE ORDER (รองรับหลาย product) ----------------------- */
+/* ----------------------- CREATE ORDER ----------------------- */
 exports.create = async (req, res, next) => {
   try {
-    // validateOrder เติม lineId และ normalize items มาแล้ว
     const realLineId = req.body.lineId;
     const { displayName, items, shippingType, customerAddress, customerPhone } = req.body;
 
@@ -131,18 +127,15 @@ exports.create = async (req, res, next) => {
       return res.status(400).json({ error: 'ข้อมูลลูกค้า/สินค้าไม่ถูกต้อง' });
     }
 
-    // 1) ดึงสินค้าแบบหลายตัว
     const productIds = [...new Set(items.map(i => String(i.product)))];
     const products = await Product.find({ _id: { $in: productIds } }).lean();
     const pMap = new Map(products.map(p => [p._id.toString(), p]));
 
-    // มี product ไหนหาไม่เจอ?
     const missing = productIds.filter(id => !pMap.has(id));
     if (missing.length) {
       return res.status(404).json({ error: `ไม่พบสินค้า: ${missing[0]}` });
     }
 
-    // 2) ตรวจ policy การขาย และ ตรวจ variant/สต๊อก
     for (const it of items) {
       const p = pMap.get(String(it.product));
       if (!canSellProduct(p)) {
@@ -154,25 +147,24 @@ exports.create = async (req, res, next) => {
       }
       if (!p.preorder) {
         if (nnum(v.stock) < nnum(it.qty)) {
-          return res.status(400).json({ error: `สต๊อก ${p.name} ${it.size}/${it.color} ไม่พอ` });
+          return res.status(400).json({ error: `สินค้า ${p.name} ${it.size}/${it.color} สินค้าหมด` });
         }
       }
     }
 
-    // 3) ล็อกสต๊อกเฉพาะ non-preorder
     const itemsToLock = items
       .filter(it => !pMap.get(String(it.product))?.preorder)
       .map(it => ({ product: it.product, size: it.size, color: it.color, quantity: it.qty }));
+    
     try {
       if (itemsToLock.length) await lockStock(itemsToLock);
     } catch (e) {
-      return res.status(400).json({ error: e.message || 'สต๊อกไม่พอ' });
+      return res.status(400).json({ error: e.message || 'สินค้าหมด' });
     }
 
-    // 4) คำนวณยอด/สร้างออเดอร์
     const orderNo = generateOrderNumber();
     const totalAmount = items.reduce((s, i) => s + nnum(i.price) * nnum(i.qty), 0);
-    const expiredAt = new Date(Date.now() + 30 * 60 * 1000); // 30 นาที
+    const expiredAt = new Date(Date.now() + 30 * 60 * 1000); 
 
     const orderItems = items.map(i => {
       const p = pMap.get(String(i.product));
@@ -200,12 +192,10 @@ exports.create = async (req, res, next) => {
       expiredAt
     });
 
-    // 5) แจ้งลูกค้าใน LINE
     if (order.customerLineId) {
       await lineMessageService.pushOrderCreatedFlexToUser(order.customerLineId, order);
     }
 
-    // 6) audit log
     await auditLogService.log({
       user: req.user?.id,
       action: 'ORDER_CREATE',
@@ -220,7 +210,7 @@ exports.create = async (req, res, next) => {
 };
 
 
-/* ---------------- VERIFY SLIP (shared) ---------------- */
+/* ---------------- VERIFY SLIP (Shared) ---------------- */
 async function processSlipAndVerify(order, file, userId = null, ip = null) {
   order.paymentSlipFilename = file.filename;
 
@@ -236,8 +226,22 @@ async function processSlipAndVerify(order, file, userId = null, ip = null) {
   order.slipOkResult = slipOkResult;
 
   if (slipOkResult.success) {
+    // ถ้าเคยหมดอายุหรือยกเลิก ต้องจองของใหม่ก่อนคอนเฟิร์ม
+    const wasExpiredOrCancelled = order.orderStatus === 'CANCELLED' || order.paymentStatus === 'EXPIRED';
+    
     if (order.paymentStatus !== 'PAYMENT_CONFIRMED') {
-      await confirmStock(order.items); 
+      if (wasExpiredOrCancelled) {
+        try {
+           // จองของใหม่ (ย้าย stock -> locked)
+           await lockStock(order.items);
+        } catch(e) {
+           throw new Error('สินค้าหมด ไม่สามารถกู้คืนออเดอร์ได้');
+        }
+      }
+      
+      // ยืนยัน (ลด locked)
+      await confirmStock(order.items);
+      
       await SaleHistory.create({
         orderId: order._id,
         customerName: order.customerName,
@@ -247,40 +251,46 @@ async function processSlipAndVerify(order, file, userId = null, ip = null) {
         soldAt: new Date()
       });
     }
+    
     order.paymentStatus = 'PAYMENT_CONFIRMED';
-    if (order.orderStatus === 'RECEIVED') {
+    // เคลียร์สถานะหมดอายุ/ยกเลิก ถ้ามี
+    if (wasExpiredOrCancelled) {
+      order.expiredAt = undefined; 
+    }
+    
+    if (order.orderStatus === 'RECEIVED' || order.orderStatus === 'CANCELLED') {
       order.orderStatus = 'PREPARING_ORDER';
     }
 
     if (order.customerLineId) {
       await lineMessageService.pushSlipResultFlexToUser(order.customerLineId, order, {
         success: true,
-        message: 'ระบบกำลังเตรียมคำสั่งซื้อของคุณ'
+        message: 'ชำระเงินสำเร็จ ระบบกำลังเตรียมสินค้า'
       });
     }
     await lineMessageService.pushSlipResultFlexToAdmin(order, {
       success: true,
-      message: `ลูกค้า ${order.customerName} ชำระสำเร็จ`
+      message: `ลูกค้า ${order.customerName} ชำระเงินสำเร็จ`
     });
 
   } else {
+    // ถ้าตรวจไม่ผ่าน
     order.paymentStatus = 'REJECTED';
     order.slipReviewCount = (order.slipReviewCount || 0) + 1;
 
     if (order.slipReviewCount >= 3) {
       await lineMessageService.pushSlipResultFlexToAdmin(order, {
         success: false,
-        message: `ลูกค้า ${order.customerName} อัปโหลดสลิปไม่ผ่าน ${order.slipReviewCount} ครั้ง`
+        message: `ลูกค้า ${order.customerName} สลิปไม่ผ่าน ${order.slipReviewCount} ครั้ง`
       });
     }
   }
 
   await order.save();
-
   await auditLogService.log({
     user: userId || order._id,
     action: 'ORDER_UPLOAD_SLIP',
-    detail: { orderId: order._id, slipOkResult },
+    detail: { orderId: order._id, slipOkResult, status: order.paymentStatus },
     ip: ip || ''
   });
 
@@ -291,32 +301,28 @@ async function processSlipAndVerify(order, file, userId = null, ip = null) {
 exports.uploadSlip = async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'กรุณาเลือกไฟล์สลิป' });
-
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
-    // guard: ลูกค้าต้องเป็นเจ้าของ
     if (req.user?.type === 'liff' && order.customerLineId !== req.user.lineId) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
+    // กรณีหมดอายุ และยังไม่จ่าย ให้ตัดจบเลย (แต่ถ้าจ่ายแล้ว หรือกำลัง process จะไม่เข้า loop นี้)
     if (order.expiredAt && order.expiredAt < new Date()) {
-      if (order.orderStatus !== 'CANCELLED' && order.paymentStatus !== 'EXPIRED') {
-        // ❗ คืนสต๊อกเฉพาะออเดอร์ที่ยัง "ไม่ชำระสำเร็จ"
-        if (order.paymentStatus !== 'PAYMENT_CONFIRMED') {
-          await unlockStock(order.items);
-        }
-      }
-      order.orderStatus = 'CANCELLED';
-      order.paymentStatus = 'EXPIRED';
-      await order.save();
-      return res.status(400).json({ error: 'ออร์เดอร์นี้หมดอายุแล้ว' });
-    }
-    if (order.orderStatus === 'CANCELLED' || order.paymentStatus === 'EXPIRED') {
-      if (order.paymentStatus !== 'PAYMENT_CONFIRMED') {
+      if (order.paymentStatus !== 'PAYMENT_CONFIRMED' && order.orderStatus !== 'CANCELLED') {
+        // คืนของ
         await unlockStock(order.items);
+        order.orderStatus = 'CANCELLED';
+        order.paymentStatus = 'EXPIRED';
+        await order.save();
+        return res.status(400).json({ error: 'ออร์เดอร์นี้หมดอายุแล้ว กรุณาสั่งซื้อใหม่' });
       }
-      return res.status(400).json({ error: 'ออร์เดอร์นี้ถูกยกเลิกหรือหมดอายุแล้ว' });
+    }
+    
+    // ถ้า Cancelled ไปแล้ว ลูกค้าอัปไม่ได้
+    if (order.orderStatus === 'CANCELLED' || order.paymentStatus === 'EXPIRED') {
+       return res.status(400).json({ error: 'ออร์เดอร์นี้ถูกยกเลิกไปแล้ว' });
     }
 
     const result = await processSlipAndVerify(order, req.file, req.user?.id, req.ip);
@@ -324,26 +330,17 @@ exports.uploadSlip = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-/* ----------------------- RETRY SLIP ----------------------- */
 exports.retrySlip = async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'กรุณาเลือกไฟล์สลิป' });
-
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
-    // guard: ลูกค้าต้องเป็นเจ้าของ
     if (req.user?.type === 'liff' && order.customerLineId !== req.user.lineId) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
     const result = await processSlipAndVerify(order, req.file, req.user?.id, req.ip);
-    if (result.slipOkResult?.success) {
-      await lineMessageService.pushSlipResultFlexToAdmin(order, {
-        success: true,
-        message: `ลูกค้า ${order.customerName} ชำระสำเร็จ (รีอัปโหลด)`
-      });
-    }
     res.json(result);
   } catch (err) { next(err); }
 };
@@ -353,67 +350,71 @@ exports.verifySlip = async (req, res, next) => {
   try {
     const order = await Order.findById(req.params.id);
     if (!order || !order.paymentSlipFilename) {
-      return res.status(400).json({ error: 'No slip uploaded' });
+      return res.status(400).json({ error: 'ไม่พบไฟล์สลิป' });
     }
-
+    
+    // ใช้ logic เดียวกับ processSlipAndVerify แต่ไม่ต้องอัปไฟล์ใหม่
     const filePath = path.join(__dirname, '..', 'private_uploads', order.paymentSlipFilename);
-    let slipOkResult = { success: false, message: 'ไม่สามารถตรวจสอบสลิปได้' };
-
+    
+    let slipOkResult = { success: false, message: 'ตรวจสอบไม่ได้' };
     try {
       slipOkResult = await slipokService.verifySlipByFile(filePath, order.totalAmount);
-    } catch (err) {
-      slipOkResult = { success: false, message: err.message || 'เกิดข้อผิดพลาดในการตรวจสอบสลิป' };
+    } catch(e) {
+      slipOkResult = { success: false, message: e.message };
     }
-
+    
+    // ถ้า Slip OK -> บังคับ Success
+    // แต่ถ้า Slip Fail -> Admin อาจจะอยาก Force approve? 
+    // ในที่นี้ยึดตามผล SlipOK เป็นหลัก หรือถ้าจะ Force ต้องทำผ่านหน้า Update status
+    
     order.slipOkResult = slipOkResult;
 
     if (slipOkResult.success) {
+      const wasExpiredOrCancelled = order.orderStatus === 'CANCELLED' || order.paymentStatus === 'EXPIRED';
+
       if (order.paymentStatus !== 'PAYMENT_CONFIRMED') {
-        await confirmStock(order.items);
-        await SaleHistory.create({
-          orderId: order._id,
-          customerName: order.customerName,
-          customerLineId: order.customerLineId,
-          items: order.items,
-          paidAmount: order.totalAmount,
-          soldAt: new Date()
-        });
+         // !!! CRITICAL FIX: ถ้าของหลุดจองไปแล้ว ต้องจองใหม่ก่อน !!!
+         if (wasExpiredOrCancelled) {
+            try {
+               await lockStock(order.items);
+            } catch(e) {
+               return res.status(400).json({ error: 'สินค้าหมดแล้ว ไม่สามารถอนุมัติได้' });
+            }
+         }
+         
+         await confirmStock(order.items);
+         
+         await SaleHistory.create({
+            orderId: order._id,
+            customerName: order.customerName,
+            customerLineId: order.customerLineId,
+            items: order.items,
+            paidAmount: order.totalAmount,
+            soldAt: new Date()
+         });
       }
+
       order.paymentStatus = 'PAYMENT_CONFIRMED';
-      if (order.orderStatus === 'RECEIVED') {
+      if (wasExpiredOrCancelled) order.expiredAt = undefined;
+      
+      if (order.orderStatus === 'RECEIVED' || order.orderStatus === 'CANCELLED') {
         order.orderStatus = 'PREPARING_ORDER';
       }
 
+      // Notify
       if (order.customerLineId) {
         await lineMessageService.pushSlipResultFlexToUser(order.customerLineId, order, {
-          success: true,
-          message: 'ระบบกำลังเตรียมคำสั่งซื้อของคุณ'
+          success: true, message: 'Admin ตรวจสอบการชำระเงินเรียบร้อยแล้ว'
         });
       }
-      await lineMessageService.pushSlipResultFlexToAdmin(order, {
-        success: true,
-        message: `ลูกค้า ${order.customerName} ชำระสำเร็จ (Admin Verify)`
-      });
-
     } else {
-      order.paymentStatus = 'REJECTED';
-      order.slipReviewCount = (order.slipReviewCount || 0) + 1;
-
-      if (order.slipReviewCount >= 3) {
-        await lineMessageService.pushSlipResultFlexToAdmin(order, {
-          success: false,
-          message: `ลูกค้า ${order.customerName} อัปโหลดสลิปไม่ผ่าน ${order.slipReviewCount} ครั้ง (Admin Verify)`
-        });
-      }
+       order.paymentStatus = 'REJECTED';
     }
 
     await order.save();
-
     await auditLogService.log({
-      user: req.user?.id,
-      action: 'ORDER_VERIFY_SLIP',
-      detail: { orderId: order._id, slipOkResult },
-      ip: req.ip
+       user: req.user?.id, action: 'ORDER_VERIFY_SLIP_ADMIN', 
+       detail: { orderId: order._id, result: slipOkResult }, ip: req.ip
     });
 
     res.json({ order, slipOkResult });
@@ -434,17 +435,13 @@ exports.getById = async (req, res, next) => {
   try {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ error: 'Order not found' });
-
-    // guard: ลูกค้าต้องเป็นเจ้าของ
     if (req.user?.type === 'liff' && order.customerLineId !== req.user.lineId) {
       return res.status(403).json({ error: 'Forbidden' });
     }
-
     res.json(order);
   } catch (err) { next(err); }
 };
 
-// ลูกค้าเจ้าของ หรือ staff ขอ URL สลิปได้ (Signed URL)
 exports.getSlipFile = async (req, res, next) => {
   try {
     const order = await Order.findById(req.params.id);
@@ -462,7 +459,10 @@ exports.getSlipFile = async (req, res, next) => {
 
 exports.getAll = async (req, res, next) => {
   try {
-    const orders = await Order.find().populate('items.product');
+    // ปรับปรุงให้ Sort ล่าสุดขึ้นก่อนเสมอ เพื่อ UX ที่ดี
+    const orders = await Order.find()
+      .populate('items.product')
+      .sort({ createdAt: -1 });
     res.json(orders);
   } catch (err) { next(err); }
 };
@@ -473,7 +473,6 @@ exports.update = async (req, res, next) => {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
-    // เลือกฟิลด์ที่อนุญาตเท่านั้น
     const allowed = [
       'orderStatus', 'paymentStatus',
       'shippingType', 'shippingProvider', 'trackingNumber',
@@ -487,11 +486,9 @@ exports.update = async (req, res, next) => {
       orderStatus: order.orderStatus,
       paymentStatus: order.paymentStatus,
       trackingNumber: order.trackingNumber,
-      shippingProvider: order.shippingProvider,
     };
     const prevTrackingNo = order.trackingNumber;
 
-    // เปลี่ยนเลขพัสดุ → เคลียร์สถานะติดตาม + เคลียร์ cache เก่า/ใหม่
     if (typeof req.body.trackingNumber === 'string' &&
         req.body.trackingNumber !== order.trackingNumber) {
       order.trackingHistory = [];
@@ -502,54 +499,41 @@ exports.update = async (req, res, next) => {
       if (req.body.trackingNumber) clearRespCache(req.body.trackingNumber);
     }
 
-    // อัปเดตค่า
     Object.assign(order, req.body);
 
-    // ===== คำนวนสถานะก่อน/หลัง =====
     const prevPaid   = prev.paymentStatus === 'PAYMENT_CONFIRMED';
     const nowPaid    = order.paymentStatus === 'PAYMENT_CONFIRMED';
+    const prevExpiredOrCancelled = prev.orderStatus === 'CANCELLED' || prev.paymentStatus === 'EXPIRED';
+    const nowExpiredOrCancelled = order.orderStatus === 'CANCELLED' || order.paymentStatus === 'EXPIRED';
 
-    const prevExpiredOrCancelled =
-      prev.orderStatus === 'CANCELLED' || prev.paymentStatus === 'EXPIRED';
-    const nowExpiredOrCancelled =
-      order.orderStatus === 'CANCELLED' || order.paymentStatus === 'EXPIRED';
-
-    const cancelledNow  = nowExpiredOrCancelled;
-    const cancelledPrev = prevExpiredOrCancelled;
-
-    const wasEverPaid = prevPaid || nowPaid;
-
-    // ===== เส้นทาง 1: เปลี่ยนเป็น CANCELLED/EXPIRED ตอนนี้ (และไม่เคยชำระ) → คืนสต๊อก =====
-    if (cancelledNow && !cancelledPrev && !wasEverPaid) {
+    // 1. Cancel/Expire now (and never paid before) -> Refund Stock
+    if (nowExpiredOrCancelled && !prevExpiredOrCancelled && !prevPaid) {
       await unlockStock(order.items);
     }
 
-    // ===== เส้นทาง 2: กู้คืนจาก EXPIRED/CANCELLED → สถานะปกติ (ยังไม่ชำระ) → ล็อกสต๊อก & ต่ออายุ =====
+    // 2. Recover from Cancel/Expire -> Reserve Stock
     if (prevExpiredOrCancelled && !nowExpiredOrCancelled && !nowPaid) {
       try {
-        await lockStock(order.items); // reserve กลับ
+        await lockStock(order.items);
       } catch (e) {
-        return res.status(400).json({ error: e.message || 'สต๊อกไม่พอสำหรับกู้คืนออเดอร์' });
+        return res.status(400).json({ error: 'สต๊อกไม่พอสำหรับกู้คืนออเดอร์' });
       }
-      // ต่ออายุหมดเขตใหม่ ถ้าอันเดิมหมดอายุไปแล้ว/ไม่มี
       if (!order.expiredAt || order.expiredAt < new Date()) {
         order.expiredAt = new Date(Date.now() + ORDER_RENEW_MINUTES * 60 * 1000);
       }
     }
 
-    // ===== เส้นทาง 3: ตั้งเป็นชำระสำเร็จตอนนี้ =====
+    // 3. Mark as Paid
     if (!prevPaid && nowPaid) {
-      // ถ้ากู้คืนจาก EXPIRED/CANCELLED มาก่อน ให้ล็อกสต๊อกก่อนคอนเฟิร์ม
+      // Recover stock if needed
       if (prevExpiredOrCancelled) {
         try {
           await lockStock(order.items);
         } catch (e) {
-          return res.status(400).json({ error: e.message || 'สต๊อกไม่พอสำหรับยืนยันการขาย' });
+          return res.status(400).json({ error: 'สต๊อกไม่พอสำหรับยืนยันการขาย' });
         }
       }
-      // คอนเฟิร์มการขาย (ลด locked)
       await confirmStock(order.items);
-      // บันทึกประวัติการขาย (ให้สอดคล้องกับ path อื่น ๆ)
       await SaleHistory.create({
         orderId: order._id,
         customerName: order.customerName,
@@ -559,13 +543,12 @@ exports.update = async (req, res, next) => {
         soldAt: new Date()
       });
 
-      // ถ้าเดิมเพิ่งรับออเดอร์ ให้ขยับไปเตรียมของ
       if (order.orderStatus === 'RECEIVED') {
         order.orderStatus = 'PREPARING_ORDER';
       }
     }
 
-    // จัดส่งแล้ว → แจ้งลูกค้าด้วย Flex (ครั้งแรกที่เข้า SHIPPING)
+    // Shipping Notification
     if (prev.orderStatus !== 'SHIPPING' && order.orderStatus === 'SHIPPING') {
       if (order.customerLineId) {
         const flex = lineMessageService.buildShippingStartedFlex(order);
@@ -573,42 +556,27 @@ exports.update = async (req, res, next) => {
       }
     }
 
-    // มีการเปลี่ยนสถานะสำคัญ → แจ้งลูกค้า
-    const anyChanged =
-      (prev.orderStatus !== order.orderStatus) ||
-      (prev.paymentStatus !== order.paymentStatus);
+    // Status Change Notification
+    const anyChanged = (prev.orderStatus !== order.orderStatus) || (prev.paymentStatus !== order.paymentStatus);
     if (anyChanged && order.customerLineId) {
       const flex = lineMessageService.buildOrderStatusUpdateFlex(order);
       await lineMessageService.pushToUser(order.customerLineId, flex);
     }
 
     await order.save();
-
-    // Audit (ถ้า service ไม่พร้อม ให้ปล่อย throw ไปให้ error handler กลางจัดการตามนโยบายของโปรเจค)
     await auditLogService.log({
-      user: req.user?.id,
-      action: 'ORDER_UPDATE',
-      detail: {
-        orderId: order._id,
-        before: prev,
-        after: {
-          orderStatus: order.orderStatus,
-          paymentStatus: order.paymentStatus,
-          shippingProvider: order.shippingProvider,
-          trackingNumber: order.trackingNumber
-        }
-      },
-      ip: req.ip
+      user: req.user?.id, action: 'ORDER_UPDATE',
+      detail: { orderId: order._id, before: prev, after: req.body }, ip: req.ip
     });
 
     res.json(order);
   } catch (err) { next(err); }
 };
 
-/* ----------------------- DELETE ----------------------- */
 exports.delete = async (req, res, next) => {
   try {
     const order = await Order.findByIdAndDelete(req.params.id);
+    // คืนของถ้ายังไม่จ่าย
     if (order && order.paymentStatus !== 'PAYMENT_CONFIRMED') {
       await unlockStock(order.items);
     }
@@ -616,38 +584,18 @@ exports.delete = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-/* ----------------------- PUSH MESSAGE TO CUSTOMER (ADMIN) ----------------------- */
 exports.pushMessageToCustomer = async (req, res, next) => {
   try {
     const { id } = req.params;
     const text = (req.body?.text || '').toString().trim();
-
-    if (!text) {
-      return res.status(400).json({ error: 'กรุณาระบุข้อความที่จะส่ง' });
-    }
-    if (text.length > 1000) {
-      return res.status(400).json({ error: 'ข้อความยาวเกินไป (สูงสุด 1000 ตัวอักษร)' });
-    }
+    if (!text) return res.status(400).json({ error: 'ระบุข้อความ' });
 
     const order = await Order.findById(id);
-    if (!order) return res.status(404).json({ error: 'ไม่พบออเดอร์' });
-    if (!order.customerLineId) {
-      return res.status(400).json({ error: 'ออเดอร์นี้ไม่มี LINE User ID ของลูกค้า จึงไม่สามารถส่งข้อความได้' });
-    }
+    if (!order || !order.customerLineId) return res.status(404).json({ error: 'ไม่พบข้อมูลลูกค้า' });
 
-    // ส่งข้อความผ่าน OA (ต้องตั้งค่า LINE_CHANNEL_ACCESS_TOKEN)
     await lineMessageService.pushToUser(order.customerLineId, { type: 'text', text });
+    await auditLogService.log({ user: req.user?.id, action: 'PUSH_MSG', detail: { orderId: id }, ip: req.ip });
 
-    // บันทึก audit log
-    await auditLogService.log({
-      user: req.user?.id,
-      action: 'ORDER_PUSH_MESSAGE',
-      detail: { orderId: order._id, length: text.length },
-      ip: req.ip
-    });
-
-    return res.json({ success: true });
-  } catch (err) {
-    return next(err);
-  }
+    res.json({ success: true });
+  } catch (err) { next(err); }
 };
