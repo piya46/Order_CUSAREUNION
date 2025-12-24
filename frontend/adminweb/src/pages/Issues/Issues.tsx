@@ -1,14 +1,42 @@
 import { useEffect, useState } from "react";
 import { 
-  Box, Paper, Typography, Button, Table, TableRow, TableCell, 
-  TableBody, TableHead, Chip, Dialog, TextField, Stack, 
-  MenuItem, IconButton, Grid, Autocomplete, CircularProgress 
+  Box, Paper, Typography, Button, Chip, Dialog, TextField, Stack, 
+  MenuItem, Grid, Autocomplete, CircularProgress, Card 
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
-import EditIcon from "@mui/icons-material/Edit";
-// Import API เพิ่มเติมเพื่อดึงข้อมูล Order/Product มาแสดง
+// Import API เพิ่มเติม
 import { listIssues, createIssue, updateIssue, listOrders, listInventory } from "../../api/admin"; 
 import { Issue } from "../../types";
+
+// ✅ Kanban Column Component
+const KanbanColumn = ({ title, status, issues, color, onEdit }: any) => (
+  <Paper sx={{ flex: 1, minWidth: 280, p: 2, bgcolor: "#f4f6f8", borderRadius: 3 }}>
+    <Stack direction="row" alignItems="center" spacing={1} mb={2}>
+       <Chip label={issues.length} color={color} size="small" sx={{ fontWeight: 'bold' }} />
+       <Typography fontWeight={800} color="text.secondary">{title}</Typography>
+    </Stack>
+    <Stack spacing={2}>
+      {issues.map((i: any) => (
+        <Paper 
+            key={i._id} 
+            elevation={1}
+            sx={{ p: 2, cursor: "pointer", borderLeft: `4px solid`, borderColor: `${color}.main`, '&:hover': { boxShadow: 3, transform: 'translateY(-2px)', transition: '0.2s' } }} 
+            onClick={() => onEdit(i)}
+        >
+           <Stack direction="row" justifyContent="space-between" mb={1}>
+              <Typography variant="subtitle2" fontWeight={800}>{i.issueNumber}</Typography>
+              {i.priority === 'CRITICAL' && <Chip label="CRITICAL" size="small" color="error" />}
+              {i.priority === 'HIGH' && <Chip label="HIGH" size="small" color="warning" />}
+           </Stack>
+           <Typography variant="body2" noWrap sx={{ mb: 1 }}>{i.description}</Typography>
+           <Typography variant="caption" color="text.secondary" display="block">
+              Ref: {i.refType} #{i.refId}
+           </Typography>
+        </Paper>
+      ))}
+    </Stack>
+  </Paper>
+);
 
 export default function Issues() {
   const [issues, setIssues] = useState<Issue[]>([]);
@@ -19,7 +47,7 @@ export default function Issues() {
 
   // Form States
   const [createForm, setCreateForm] = useState({ 
-    refType: "ORDER", // Default เป็น Order
+    refType: "ORDER", 
     refId: "", 
     description: "", 
     priority: "MEDIUM" 
@@ -27,7 +55,7 @@ export default function Issues() {
   
   const [editForm, setEditForm] = useState<{ id: string, status: string, priority: string, adminComment: string } | null>(null);
 
-  // State สำหรับ Autocomplete (รายการตัวเลือก Ref ID)
+  // State สำหรับ Autocomplete
   const [refOptions, setRefOptions] = useState<{ label: string, value: string }[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(false);
 
@@ -45,29 +73,26 @@ export default function Issues() {
 
   // Effect: โหลดตัวเลือก Ref ID เมื่อเปลี่ยน Ref Type ในหน้า Create
   useEffect(() => {
-    if (!openCreate) return; // ไม่ต้องโหลดถ้าไม่ได้เปิดหน้า Create
+    if (!openCreate) return;
 
     const fetchOptions = async () => {
       setLoadingOptions(true);
-      setRefOptions([]); // Clear เก่าก่อน
+      setRefOptions([]); 
       
       try {
         if (createForm.refType === "ORDER") {
           const orders = await listOrders();
-          // map orderNo มาเป็นตัวเลือก
           setRefOptions(orders.map(o => ({ 
-            label: `${o.orderNo} (${o.customerName})`, // โชว์เลข + ชื่อลูกค้าให้ดูง่าย
+            label: `${o.orderNo} (${o.customerName})`, 
             value: o.orderNo 
           })));
         } else if (createForm.refType === "PRODUCT") {
           const products = await listInventory();
-          // map ชื่อสินค้าหรือรหัสมาเป็นตัวเลือก
           setRefOptions(products.map(p => ({ 
             label: p.name, 
-            value: p._id // หรือใช้ p.productCode ถ้ามี
+            value: p._id 
           })));
         }
-        // กรณี RECEIVING หรืออื่นๆ เพิ่ม logic ตรงนี้ได้ครับ
       } catch (err) {
         console.error("Failed to load ref options", err);
       } finally {
@@ -81,14 +106,9 @@ export default function Issues() {
 
   const handleCreate = async () => {
     try {
-      // ส่ง refType และ refId ไปบันทึก
-      await createIssue({ 
-        ...createForm,
-        // priority, refType, refId, description ถูกส่งไปครบถ้วน
-      } as any);
-      
+      await createIssue({ ...createForm } as any);
       setOpenCreate(false);
-      setCreateForm({ refType: "ORDER", refId: "", description: "", priority: "MEDIUM" }); // Reset
+      setCreateForm({ refType: "ORDER", refId: "", description: "", priority: "MEDIUM" });
       load();
     } catch (error) {
       alert("Error creating issue");
@@ -120,25 +140,6 @@ export default function Issues() {
     }
   };
 
-  // Helper colors... (เหมือนเดิม)
-  const getPriorityColor = (p: string) => {
-    switch(p) {
-      case "CRITICAL": return "error";
-      case "HIGH": return "warning";
-      case "LOW": return "info";
-      default: return "default";
-    }
-  };
-  const getStatusColor = (s: string) => {
-    switch(s) {
-      case "RESOLVED": return "success";
-      case "PROCESSING": return "primary";
-      case "REJECTED": return "default";
-      case "CLOSED": return "default";
-      default: return "error"; 
-    }
-  };
-
   return (
     <Box p={{ xs: 2, md: 4 }}>
       <Stack direction="row" justifyContent="space-between" mb={3}>
@@ -148,81 +149,63 @@ export default function Issues() {
         </Button>
       </Stack>
 
-      <Paper>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Issue No.</TableCell>
-              <TableCell>Priority</TableCell>
-              <TableCell>Ref (Type/ID)</TableCell>
-              <TableCell>รายละเอียด</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell align="right">Manage</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {issues.map(i => (
-              <TableRow key={i._id}>
-                <TableCell>{i.issueNumber}</TableCell>
-                <TableCell>
-                  <Chip label={i.priority || "MEDIUM"} color={getPriorityColor(i.priority || "MEDIUM") as any} size="small" variant="outlined" />
-                </TableCell>
-                <TableCell>
-                  {/* แสดง Type คู่กับ ID */}
-                  <Stack direction="column" alignItems="flex-start">
-                    <Typography variant="caption" color="textSecondary">{i.refType}</Typography>
-                    <Chip label={i.refId} size="small" />
-                  </Stack>
-                </TableCell>
-                <TableCell sx={{ maxWidth: 300 }}>
-                    <Typography noWrap variant="body2">{i.description}</Typography>
-                    {i.adminComment && <Typography variant="caption" color="primary">Admin: {i.adminComment}</Typography>}
-                </TableCell>
-                <TableCell>
-                  <Chip label={i.status} color={getStatusColor(i.status) as any} size="small" />
-                </TableCell>
-                <TableCell align="right">
-                    <Button size="small" startIcon={<EditIcon />} onClick={() => openEditModal(i)}>
-                        Edit
-                    </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </Paper>
+      {/* ✅ Kanban Board Layout */}
+      <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="flex-start" sx={{ overflowX: "auto", pb: 2 }}>
+        <KanbanColumn 
+             title="แจ้งใหม่ (Open)" 
+             status="OPEN" 
+             issues={issues.filter(i=>i.status==='OPEN')} 
+             color="error" 
+             onEdit={openEditModal} 
+        />
+        <KanbanColumn 
+             title="กำลังดำเนินการ (Processing)" 
+             status="PROCESSING" 
+             issues={issues.filter(i=>i.status==='PROCESSING')} 
+             color="warning" 
+             onEdit={openEditModal} 
+        />
+        <KanbanColumn 
+             title="แก้ไขแล้ว (Resolved)" 
+             status="RESOLVED" 
+             issues={issues.filter(i=>i.status==='RESOLVED')} 
+             color="success" 
+             onEdit={openEditModal} 
+        />
+        <KanbanColumn 
+             title="ปิดงาน (Closed)" 
+             status="CLOSED" 
+             issues={issues.filter(i=>i.status==='CLOSED' || i.status==='REJECTED')} 
+             color="default" 
+             onEdit={openEditModal} 
+        />
+      </Stack>
 
-      {/* --- Dialog สร้างใหม่ (Updated) --- */}
+      {/* Dialog สร้างใหม่ */}
       <Dialog open={openCreate} onClose={() => setOpenCreate(false)} fullWidth maxWidth="sm">
         <Box p={3}>
           <Typography variant="h6" mb={2}>แจ้งปัญหาใหม่</Typography>
           <Stack spacing={2}>
-            
             <Grid container spacing={2}>
-              {/* เลือกประเภทอ้างอิง */}
               <Grid item xs={4}>
                 <TextField 
                     select fullWidth label="Ref Type" 
                     value={createForm.refType} 
-                    onChange={e => setCreateForm({...createForm, refType: e.target.value, refId: ""})} // Reset ID เมื่อเปลี่ยน Type
+                    onChange={e => setCreateForm({...createForm, refType: e.target.value, refId: ""})} 
                 >
                     <MenuItem value="ORDER">Order</MenuItem>
                     <MenuItem value="PRODUCT">Product</MenuItem>
                     <MenuItem value="RECEIVING">Receiving</MenuItem>
                 </TextField>
               </Grid>
-
-              {/* Autocomplete: ค้นหาและเลือก Ref ID */}
               <Grid item xs={8}>
                  <Autocomplete
                     options={refOptions}
                     getOptionLabel={(option) => option.label}
                     loading={loadingOptions}
-                    // เมื่อเลือกค่า
                     onChange={(_, newValue) => {
                         setCreateForm({ ...createForm, refId: newValue ? newValue.value : "" });
                     }}
-                    // กรณีพิมพ์เอง (FreeSolo) หรือแสดงผล
                     renderInput={(params) => (
                         <TextField 
                             {...params} 
@@ -241,25 +224,16 @@ export default function Issues() {
                  />
               </Grid>
             </Grid>
-
-            <TextField 
-                select label="Priority" 
-                value={createForm.priority} 
-                onChange={e => setCreateForm({...createForm, priority: e.target.value})}
-            >
+            <TextField select label="Priority" value={createForm.priority} onChange={e => setCreateForm({...createForm, priority: e.target.value})}>
                 {['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].map(p => <MenuItem key={p} value={p}>{p}</MenuItem>)}
             </TextField>
-
             <TextField multiline rows={3} label="รายละเอียดปัญหา" value={createForm.description} onChange={e => setCreateForm({...createForm, description: e.target.value})} />
-            
-            <Button variant="contained" onClick={handleCreate} disabled={!createForm.refId || !createForm.description}>
-                บันทึก
-            </Button>
+            <Button variant="contained" onClick={handleCreate} disabled={!createForm.refId || !createForm.description}>บันทึก</Button>
           </Stack>
         </Box>
       </Dialog>
 
-      {/* --- Dialog แก้ไข (Updated) --- */}
+      {/* Dialog แก้ไข */}
       <Dialog open={openEdit} onClose={() => setOpenEdit(false)} fullWidth maxWidth="sm">
         <Box p={3}>
           <Typography variant="h6" mb={2}>จัดการปัญหา</Typography>
@@ -267,33 +241,17 @@ export default function Issues() {
               <Stack spacing={2}>
                   <Grid container spacing={2}>
                       <Grid item xs={6}>
-                        <TextField 
-                            fullWidth select label="Status" 
-                            value={editForm.status} 
-                            onChange={e => setEditForm({...editForm, status: e.target.value})}
-                        >
+                        <TextField fullWidth select label="Status" value={editForm.status} onChange={e => setEditForm({...editForm, status: e.target.value})}>
                             {['OPEN', 'PROCESSING', 'RESOLVED', 'REJECTED', 'CLOSED'].map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
                         </TextField>
                       </Grid>
                       <Grid item xs={6}>
-                        <TextField 
-                            fullWidth select label="Priority" 
-                            value={editForm.priority} 
-                            onChange={e => setEditForm({...editForm, priority: e.target.value})}
-                        >
+                        <TextField fullWidth select label="Priority" value={editForm.priority} onChange={e => setEditForm({...editForm, priority: e.target.value})}>
                             {['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].map(p => <MenuItem key={p} value={p}>{p}</MenuItem>)}
                         </TextField>
                       </Grid>
                   </Grid>
-                  
-                  <TextField 
-                    fullWidth multiline rows={3} 
-                    label="Admin Comment / Note" 
-                    placeholder="บันทึกการแก้ไข..."
-                    value={editForm.adminComment} 
-                    onChange={e => setEditForm({...editForm, adminComment: e.target.value})} 
-                  />
-                  
+                  <TextField fullWidth multiline rows={3} label="Admin Comment / Note" placeholder="บันทึกการแก้ไข..." value={editForm.adminComment} onChange={e => setEditForm({...editForm, adminComment: e.target.value})} />
                   <Button variant="contained" color="primary" onClick={handleUpdate}>บันทึกการเปลี่ยนแปลง</Button>
               </Stack>
           )}

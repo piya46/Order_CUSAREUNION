@@ -83,6 +83,11 @@ exports.update = async (req, res, next) => {
 
 exports.delete = async (req, res, next) => {
   try {
+    const isUsed = await SaleHistory.exists({ "items.product": req.params.id });
+    if (isUsed) {
+      return res.status(400).json({ error: "ไม่สามารถลบสินค้านี้ได้เนื่องจากมีประวัติการขายแล้ว (กรุณาใช้การปิด Active แทน)" });
+    }
+    
     const before = await Product.findById(req.params.id).lean();
     await Product.findByIdAndDelete(req.params.id);
 

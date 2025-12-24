@@ -1,4 +1,3 @@
-// src/pages/Dashboard.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Box, Grid, Paper, Stack, Typography, Chip, Divider, Skeleton, Button,
@@ -27,9 +26,13 @@ import { getToken } from "../lib/session";
 import { parseJwt, type AdminClaims } from "../lib/jwt";
 import { alpha } from "@mui/material/styles";
 
-const API = import.meta.env.VITE_API_URL || "/api";
+// ✅ Import Recharts & Framer Motion
+import { 
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer 
+} from 'recharts';
+import { motion } from "framer-motion";
 
-/* ------------------------- types & helpers ------------------------- */
+const API = import.meta.env.VITE_API_URL || "/api";
 
 type Order = {
   _id: string;
@@ -48,6 +51,7 @@ type UserPayload = {
   username?: string;
   roles?: string[];
   permissions?: string[];
+  name?: string; // เพิ่ม name เพื่อใช้ใน Greeting
 };
 
 function hasPerm(p: string) {
@@ -56,15 +60,31 @@ function hasPerm(p: string) {
     return Array.isArray(u.permissions) && u.permissions.includes(p);
   } catch { return false; }
 }
-function hasAnyPerm(list: string[]) {
-  return list.some(hasPerm);
-}
 function getExpMsFromToken(): number | null {
   const claims = parseJwt<AdminClaims>(getToken());
   return claims?.exp ? claims.exp * 1000 : null;
 }
 
-/* ------------------------- main component ------------------------- */
+// ✅ Greeting Component
+const Greeting = ({ user }: { user: any }) => {
+  const hour = new Date().getHours();
+  let text = "สวัสดีครับ";
+  let icon = "👋";
+  if (hour < 12) { text = "อรุณสวัสดิ์"; icon = "☕"; }
+  else if (hour < 18) { text = "สวัสดีตอนบ่าย"; icon = "☀️"; }
+  else { text = "สวัสดีตอนเย็น"; icon = "🌙"; }
+
+  return (
+    <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} style={{ marginBottom: 24 }}>
+        <Typography variant="h4" fontWeight={900} gutterBottom>
+            {icon} {text}, {user?.name || "Admin"}!
+        </Typography>
+        <Typography color="text.secondary">
+            ภาพรวมระบบและการขายของคุณวันนี้
+        </Typography>
+    </motion.div>
+  );
+};
 
 export default function Dashboard() {
   const [orders, setOrders] = useState<Order[] | null>(null);
@@ -103,7 +123,6 @@ export default function Dashboard() {
     }
   };
 
-  // initial + auto refresh (visible only)
   useEffect(() => {
     load();
     const iv = setInterval(() => {
@@ -114,7 +133,6 @@ export default function Dashboard() {
     return () => { clearInterval(iv); document.removeEventListener("visibilitychange", onVis); abortRef.current?.abort(); };
   }, []);
 
-  // hotkey R to refresh
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() === "r" && !e.metaKey && !e.ctrlKey) {
@@ -126,7 +144,6 @@ export default function Dashboard() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // session countdown tick
   useEffect(() => {
     const t = setInterval(() => {
       const expMs = getExpMsFromToken();
@@ -180,21 +197,7 @@ export default function Dashboard() {
     return arr;
   }, [orders]);
 
-  const spark = useMemo(() => {
-    const h = 48, w = 280, pad = 6;
-    const vals = series.map(s => s.value);
-    const max = Math.max(1, ...vals);
-    const step = (w - pad*2) / Math.max(1, series.length - 1);
-    const points = series.map((s, i) => {
-      const x = pad + i * step;
-      const y = pad + (1 - (s.value / max)) * (h - pad*2);
-      return `${x},${y}`;
-    }).join(" ");
-    return { w, h, points, max };
-  }, [series]);
-
   const mode = import.meta.env.MODE?.toUpperCase() || "DEV";
-  const appName = import.meta.env.VITE_APP_NAME || "AdminWeb";
   const leftSec = leftMs != null ? Math.ceil(leftMs / 1000) : null;
   const mm = leftSec != null ? Math.floor(leftSec / 60) : null;
   const ss = leftSec != null ? (leftSec % 60).toString().padStart(2, "0") : null;
@@ -235,6 +238,9 @@ export default function Dashboard() {
         )}
       </Stack>
 
+      {/* ✅ ใส่ Greeting */}
+      <Greeting user={JSON.parse(localStorage.getItem("aw_user") || "{}")} />
+
       {err && (
         <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>
       )}
@@ -243,6 +249,7 @@ export default function Dashboard() {
       <Grid container spacing={2}>
         <Grid item xs={12} md={8}>
           <Grid container spacing={2}>
+            {/* 4 Cards บน */}
             <Grid item xs={6} md={3}>
               <Paper variant="outlined" sx={{ p: 2 }}>
                 <Stack spacing={1}>
@@ -288,30 +295,32 @@ export default function Dashboard() {
               </Paper>
             </Grid>
 
+            {/* ✅ Chart รายได้ (AreaChart) */}
             <Grid item xs={12}>
-              <Paper variant="outlined" sx={{ p: 2 }}>
-                <Stack direction={{ xs: "column", md: "row" }} alignItems={{ xs: "flex-start", md: "center" }} justifyContent="space-between" spacing={1}>
-                  <Stack direction="row" spacing={1.25} alignItems="center">
-                    <TrendingUpIcon />
-                    <Typography fontWeight={800}>รายรับที่ยืนยันแล้ว (7 วัน)</Typography>
-                  </Stack>
-                  <Typography variant="h5" fontWeight={900}>
-                    {loading ? <Skeleton width={160}/> : kpi.revenue.toLocaleString("th-TH")} บาท
-                  </Typography>
-                </Stack>
-                <Box sx={{ mt: 1.25 }}>
+              <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, height: 350 }}>
+                <Typography variant="h6" fontWeight={800} mb={2}>📈 แนวโน้มรายได้ (7 วันล่าสุด)</Typography>
+                <Box height={260}>
                   {loading ? (
-                    <Skeleton height={52} />
+                    <Skeleton variant="rectangular" height="100%" />
                   ) : (
-                    <Box component="svg" viewBox={`0 0 ${spark.w} ${spark.h}`} width="100%" height="52">
-                      <polyline
-                        fill="none"
-                        stroke="currentColor"
-                        strokeOpacity={.3}
-                        strokeWidth="2"
-                        points={spark.points}
-                      />
-                    </Box>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={series}>
+                        <defs>
+                          <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#07c160" stopOpacity={0.8}/>
+                            <stop offset="95%" stopColor="#07c160" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="label" tick={{fontSize: 12}} />
+                        <YAxis tick={{fontSize: 12}} />
+                        <RechartsTooltip 
+                            contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                            formatter={(value:number) => [`฿${value.toLocaleString()}`, 'รายได้']}
+                        />
+                        <Area type="monotone" dataKey="value" stroke="#07c160" fillOpacity={1} fill="url(#colorValue)" strokeWidth={3} />
+                      </AreaChart>
+                    </ResponsiveContainer>
                   )}
                 </Box>
               </Paper>
@@ -319,6 +328,7 @@ export default function Dashboard() {
           </Grid>
         </Grid>
 
+        {/* Right Side: Quick Links & Attention */}
         <Grid item xs={12} md={4}>
           <Paper variant="outlined" sx={{ p: 2, height: "100%" }}>
             <Stack direction="row" spacing={1} alignItems="center" mb={1}>
@@ -358,11 +368,6 @@ export default function Dashboard() {
                   </Button>
                 </Grid>
               ))}
-              {!menuShortcuts.length && (
-                <Grid item xs={12}>
-                  <Alert severity="info">บัญชีนี้ยังไม่มีสิทธิ์การเข้าถึงเมนูใด</Alert>
-                </Grid>
-              )}
             </Grid>
           </Paper>
         </Grid>
@@ -412,33 +417,9 @@ export default function Dashboard() {
               <Typography fontWeight={800}>สต็อก / จัดซื้อ</Typography>
             </Stack>
             <Stack spacing={1}>
-              <Button
-                component={Link}
-                to="/products"
-                fullWidth
-                variant="outlined"
-                startIcon={<CategoryIcon />}
-              >
-                จัดการสินค้า
-              </Button>
-              <Button
-                component={Link}
-                to="/po"
-                fullWidth
-                variant="outlined"
-                startIcon={<AddBoxIcon />}
-              >
-                สร้างใบสั่งซื้อ
-              </Button>
-              <Button
-                component={Link}
-                to="/receiving"
-                fullWidth
-                variant="outlined"
-                startIcon={<MoveDownIcon />}
-              >
-                รับสินค้าเข้า
-              </Button>
+              <Button component={Link} to="/products" fullWidth variant="outlined" startIcon={<CategoryIcon />}>จัดการสินค้า</Button>
+              <Button component={Link} to="/po" fullWidth variant="outlined" startIcon={<AddBoxIcon />}>สร้างใบสั่งซื้อ</Button>
+              <Button component={Link} to="/receiving" fullWidth variant="outlined" startIcon={<MoveDownIcon />}>รับสินค้าเข้า</Button>
             </Stack>
           </Paper>
         </Grid>
