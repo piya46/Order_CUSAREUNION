@@ -10,7 +10,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import VisibilityIcon from "@mui/icons-material/Visibility";
-import FileDownloadIcon from "@mui/icons-material/FileDownload";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import SearchIcon from "@mui/icons-material/Search";
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
@@ -84,6 +83,17 @@ export default function POList() {
   const variantsOf = (pid: string): Variant[] => (products.find(p => p._id === pid)?.variants || []);
   const totalAmount = useMemo(() => items.reduce((s, it) => s + (Number(it.unitPrice || 0) * Number(it.quantity || 0)), 0), [items]);
 
+  // ✅ Helper: หาชื่อสินค้าสำหรับ PO (เผื่อ Backend ไม่ Populate หรือไม่ได้เก็บ name)
+  const getProductName = (item: any) => {
+    if (typeof item.product === 'object' && item.product?.name) return item.product.name;
+    if (item.productName) return item.productName;
+    
+    // ค้นจาก Products Store ใน Frontend
+    const pid = typeof item.product === 'object' ? item.product?._id : item.product;
+    const found = products.find(p => p._id === pid);
+    return found ? found.name : "Unknown Product";
+  };
+
   const save = async () => {
     if (!supplierName.trim()) { setMsg({ type: "error", text: "กรุณากรอกชื่อ Supplier" }); return; }
     const validRows = items.filter(it => it.productId && Number(it.quantity) > 0);
@@ -91,19 +101,31 @@ export default function POList() {
 
     setSaving(true); setMsg(null);
     try {
+      // เตรียมข้อมูลสินค้าให้ครบถ้วน รวมถึง size/color เพื่อให้ backend บันทึกได้
+      const payloadItems = validRows.map(it => {
+        const product = products.find(p => p._id === it.productId);
+        const variant = product?.variants.find(v => v._id === it.variantId);
+        return {
+          productId: it.productId,
+          variantId: it.variantId || undefined,
+          productName: product?.name || "", // ส่งชื่อไปด้วย
+          size: variant?.size || "",       // ส่ง Size
+          color: variant?.color || "",     // ส่ง Color
+          quantity: Number(it.quantity || 0),
+          unitPrice: Number(it.unitPrice || 0)
+        };
+      });
+
       const body = {
         supplierName: supplierName.trim(),
         orderDate: orderDate ? new Date(orderDate).toISOString() : undefined,
         expectedReceiveDate: expectedReceiveDate ? new Date(expectedReceiveDate).toISOString() : undefined,
-        items: validRows.map(it => ({
-          productId: it.productId,
-          variantId: it.variantId || undefined,
-          quantity: Number(it.quantity || 0),
-          unitPrice: Number(it.unitPrice || 0)
-        }))
+        items: payloadItems
       };
+      
       await createPO(body);
       setOpenCreate(false);
+      
       // Reset Form
       setSupplierName(""); setOrderDate(new Date().toISOString().split('T')[0]);
       setExpectedReceiveDate(""); setItems([{ productId: "", variantId: "", quantity: 1, unitPrice: 0 }]);
@@ -118,7 +140,6 @@ export default function POList() {
     }
   };
 
-  // ✅ New Export Handler
   const handleExport = async (id: string, type: "pdf" | "excel") => {
     try {
       setMsg({ type: 'info', text: 'กำลังดาวน์โหลด...' });
@@ -308,7 +329,7 @@ export default function POList() {
       <Dialog open={openDetail} onClose={()=>setOpenDetail(false)} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
         <DialogTitle sx={{ borderBottom: '1px solid #eee' }}>
             รายละเอียด PO: <b>{selectedPO?.poNumber}</b>
-            <Chip label={selectedPO?.status} size="small" sx={{ ml: 2 }} color="primary" variant="outlined" />
+            {selectedPO && <Box component="span" sx={{ ml: 2 }}>{getStatusChip(selectedPO.status)}</Box>}
         </DialogTitle>
         <DialogContent sx={{ pt: 3 }}>
           {selectedPO && (
@@ -325,23 +346,30 @@ export default function POList() {
                   <TableRow sx={{ bgcolor: '#f5f5f5' }}>
                      <TableCell>สินค้า</TableCell>
                      <TableCell>Spec</TableCell>
-                     <TableCell align="right">จำนวน</TableCell>
+                     <TableCell align="right">จำนวนสั่ง</TableCell>
+                     <TableCell align="right" sx={{color: 'success.main'}}>รับแล้ว</TableCell>
                      <TableCell align="right">ราคา/หน่วย</TableCell>
                      <TableCell align="right">รวม</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {selectedPO.items?.map((item: any, i: number) => (
-                    <TableRow key={i}>
-                      <TableCell>{item.productName || "Product"}</TableCell>
-                      <TableCell>{item.size} {item.color}</TableCell>
-                      <TableCell align="right">{item.quantity}</TableCell>
-                      <TableCell align="right">{formatTHB(item.price || 0)}</TableCell>
-                      <TableCell align="right">{formatTHB((item.price||0) * (item.quantity||0))}</TableCell>
-                    </TableRow>
-                  ))}
+                  {selectedPO.items?.map((item: any, i: number) => {
+                    return (
+                      <TableRow key={i}>
+                        {/* ✅ ใช้ Helper getProductName */}
+                        <TableCell>{getProductName(item)}</TableCell>
+                        <TableCell>{item.size} {item.color}</TableCell>
+                        <TableCell align="right">{item.quantity}</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 'bold', color: (item.receivedQuantity >= item.quantity) ? 'success.main' : 'warning.main' }}>
+                            {item.receivedQuantity || 0}
+                        </TableCell>
+                        <TableCell align="right">{formatTHB(item.price || 0)}</TableCell>
+                        <TableCell align="right">{formatTHB((item.price||0) * (item.quantity||0))}</TableCell>
+                      </TableRow>
+                    );
+                  })}
                   <TableRow>
-                    <TableCell colSpan={4} align="right" sx={{ fontWeight: 'bold' }}>Total</TableCell>
+                    <TableCell colSpan={5} align="right" sx={{ fontWeight: 'bold' }}>Total</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 'bold', color: 'primary.main' }}>{formatTHB(selectedPO.totalAmount || 0)}</TableCell>
                   </TableRow>
                 </TableBody>

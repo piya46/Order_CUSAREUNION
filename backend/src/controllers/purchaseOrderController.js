@@ -1,7 +1,7 @@
 const PurchaseOrder = require('../models/PurchaseOrder');
 const { generatePONumber } = require('../utils/generate');
 const exportService = require('../services/exportService');
-const auditLogService = require('../services/auditLogService'); // ✅ เพิ่ม
+const auditLogService = require('../services/auditLogService');
 
 exports.create = async (req, res, next) => {
   try {
@@ -9,7 +9,6 @@ exports.create = async (req, res, next) => {
     po.poNumber = generatePONumber();
     await po.save();
 
-    // ✅ Audit
     await auditLogService.log({
       user: req.user?.id,
       action: 'PO_CREATE',
@@ -23,9 +22,11 @@ exports.create = async (req, res, next) => {
 
 exports.getAll = async (req, res, next) => {
   try {
-    const pos = await PurchaseOrder.find();
+    // ✅ แก้ไข: เพิ่ม populate เพื่อดึงรายละเอียดสินค้า (ชื่อ, รหัส, ฯลฯ) ไปแสดงผล
+    const pos = await PurchaseOrder.find()
+      .populate('items.product') 
+      .sort({ createdAt: -1 });
 
-    // ✅ Audit (เป็น read event แต่มีประโยชน์ในงานหลังบ้าน)
     await auditLogService.log({
       user: req.user?.id,
       action: 'PO_LIST_VIEW',
@@ -39,7 +40,10 @@ exports.getAll = async (req, res, next) => {
 
 exports.getOne = async (req, res, next) => {
   try {
-    const po = await PurchaseOrder.findById(req.params.id);
+    // ✅ แก้ไข: เพิ่ม populate ตรงนี้ด้วย
+    const po = await PurchaseOrder.findById(req.params.id)
+      .populate('items.product');
+      
     if (!po) return res.status(404).json({ error: 'PO not found' });
 
     await auditLogService.log({
@@ -90,7 +94,6 @@ exports.exportPO = async (req, res, next) => {
     const po = await PurchaseOrder.findById(req.params.id).populate('items.product');
     if (!po) return res.status(404).json({ error: 'PO not found' });
 
-    // ✅ Audit ก่อนส่งไฟล์ออก
     await auditLogService.log({
       user: req.user?.id,
       action: 'PO_EXPORT',

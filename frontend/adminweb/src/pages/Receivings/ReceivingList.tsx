@@ -12,7 +12,6 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import SearchIcon from "@mui/icons-material/Search";
 import VisibilityIcon from "@mui/icons-material/Visibility";
-import FileDownloadIcon from "@mui/icons-material/FileDownload";
 import InventoryIcon from '@mui/icons-material/Inventory';
 import TableViewIcon from '@mui/icons-material/TableView';
 
@@ -79,6 +78,70 @@ export default function ReceivingList() {
   const updateRow = (idx: number, patch: Partial<NewItem>) => setItems(s => { const d=[...s]; d[idx] = { ...d[idx], ...patch }; return d; });
   const variantsOf = (pid: string): Variant[] => (products.find(p => p._id === pid)?.variants || []);
 
+  // ✅ Helper: หาชื่อสินค้า (รองรับทั้ง object populate และ id string)
+  const getProductName = (item: any) => {
+    // 1. ลองดูใน item ก่อน
+    if (typeof item.product === 'object' && item.product?.name) return item.product.name;
+    if (item.productName) return item.productName;
+
+    // 2. ถ้ามีแต่ ID ให้ไปหาใน list products หลัก
+    const pid = typeof item.product === 'object' ? item.product?._id : item.product;
+    const found = products.find(p => p._id === pid);
+    if (found) return found.name;
+
+    return "Unknown Product"; // จนปัญญา
+  };
+
+  // ✅ Logic: เลือก PO แล้วดึงรายการสินค้ามาเติม (Auto-fill)
+  const handleSelectPO = (poId: string) => {
+    setPo(poId);
+    if (!poId) {
+        setItems([{ productId: "", variantId: "", quantity: 1, unitCost: 0 }]);
+        return;
+    }
+
+    const selected = poList.find(p => p._id === poId);
+    if (selected && selected.items) {
+        const newItems: NewItem[] = [];
+
+        selected.items.forEach((poItem: any) => {
+            // คำนวณยอดที่เหลือ (สั่ง - รับไปแล้ว)
+            const ordered = poItem.quantity || 0;
+            const received = poItem.receivedQuantity || 0;
+            const remaining = ordered - received;
+
+            if (remaining > 0) {
+                // หา Product ID (เผื่อเป็น object จาก populate)
+                const prodId = (typeof poItem.product === 'object' && poItem.product) ? poItem.product._id : (poItem.product || "");
+                
+                // หา Variant ID
+                let varId = "";
+                const product = products.find(p => p._id === prodId);
+                if (product && product.variants) {
+                    const matchVar = product.variants.find(v => v.size === poItem.size && v.color === poItem.color);
+                    if (matchVar) varId = matchVar._id;
+                }
+
+                newItems.push({
+                    productId: prodId, // ✅ ต้องไม่เป็น undefined
+                    variantId: varId,  // ✅ ต้องไม่เป็น undefined (เป็น "" แทน)
+                    quantity: remaining,
+                    unitCost: poItem.price || 0
+                });
+            }
+        });
+
+        if (newItems.length > 0) {
+            setItems(newItems);
+             setMsg({ type: 'info', text: `ดึงรายการสินค้าจาก PO เรียบร้อย (${newItems.length} รายการคงเหลือ)` });
+             setTimeout(()=>setMsg(null), 3000);
+        } else {
+             setMsg({ type: 'info', text: 'PO นี้ได้รับสินค้าครบถ้วนแล้ว (Completed)' });
+             setItems([{ productId: "", variantId: "", quantity: 1, unitCost: 0 }]);
+        }
+    }
+  };
+
   const save = async () => {
     const validRows = items.filter(it => it.productId && Number(it.quantity) > 0);
     if (!validRows.length) { setMsg({type:'error', text:"กรุณาเพิ่มสินค้าอย่างน้อย 1 รายการ"}); return; }
@@ -103,7 +166,11 @@ export default function ReceivingList() {
       setPo(""); setReceiverName(""); setReceiveDate(new Date().toISOString().split('T')[0]); setItems([{ productId: "", variantId: "", quantity: 1, unitCost: 0 }]);
       
       await load();
-      setMsg({type:'success', text: "บันทึกรับเข้าสำเร็จ! (Stock Updated)"});
+      // รีโหลด List PO ด้วย เพื่อให้ยอด ReceivedQuantity อัปเดตทันที
+      const pos = await listPO();
+      setPoList(pos);
+
+      setMsg({type:'success', text: "บันทึกรับเข้าสำเร็จ! (Stock & PO Updated)"});
       setTimeout(()=>setMsg(null), 3000);
     } catch (e:any) {
       setMsg({type:'error', text: e?.message || "เกิดข้อผิดพลาดในการบันทึก"});
@@ -112,7 +179,6 @@ export default function ReceivingList() {
     }
   };
 
-  // ✅ New Export Handler
   const handleExport = async (id: string, type: "pdf" | "excel") => {
     try {
       setMsg({ type: 'info', text: 'กำลังดาวน์โหลด...' });
@@ -174,7 +240,7 @@ export default function ReceivingList() {
             {view.map(r => (
               <TableRow component={motion.tr} initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} key={r._id} hover>
                 <TableCell sx={{ fontWeight: 600, color: 'primary.main' }}>{r.receivingNumber}</TableCell>
-                <TableCell>{r.po ? <Chip label="จาก PO" size="small" variant="outlined" color="primary" /> : "-"}</TableCell>
+                <TableCell>{r.po ? <Chip label={r.po.poNumber || "PO"} size="small" variant="outlined" color="primary" /> : "-"}</TableCell>
                 <TableCell>{r.receiverName || "-"}</TableCell>
                 <TableCell>{r.receiveDate ? formatDate(r.receiveDate) : "-"}</TableCell>
                 <TableCell>{r.items?.length || 0} รายการ</TableCell>
@@ -212,9 +278,14 @@ export default function ReceivingList() {
             </Alert>
             <Grid container spacing={2} sx={{ mb: 3 }}>
               <Grid item xs={12} sm={6}>
-                 <TextField select label="อ้างอิง PO (Purchase Order)" value={po} onChange={e=>setPo(e.target.value)} fullWidth>
+                 <TextField select label="อ้างอิง PO (Purchase Order)" value={po} onChange={e=>handleSelectPO(e.target.value)} fullWidth>
                   <MenuItem value=""><em>(ไม่มี / ไม่ระบุ)</em></MenuItem>
-                  {poList.map(p => <MenuItem key={p._id} value={p._id}>{p.poNumber} — {p.supplierName}</MenuItem>)}
+                  {poList.map(p => (
+                    <MenuItem key={p._id} value={p._id}>
+                        {p.poNumber} — {p.supplierName} 
+                        {p.status === 'RECEIVED' ? ' (ครบแล้ว)' : ''}
+                    </MenuItem>
+                  ))}
                 </TextField>
               </Grid>
               <Grid item xs={12} sm={6}>
@@ -231,8 +302,9 @@ export default function ReceivingList() {
               <Paper key={idx} variant="outlined" sx={{ p: 2, mb: 1.5, borderRadius: 2, bgcolor: '#fafafa' }}>
                 <Grid container spacing={2} alignItems="center">
                   <Grid item xs={12} sm={5}>
+                    {/* ✅ FIX MUI Error: ใช้ value={it.productId || ""} เสมอ */}
                     <TextField
-                      select label="สินค้า" value={it.productId} onChange={e=>{
+                      select label="สินค้า" value={it.productId || ""} onChange={e=>{
                         updateRow(idx, { productId: e.target.value, variantId: "" });
                       }} fullWidth size="small"
                     >
@@ -241,6 +313,7 @@ export default function ReceivingList() {
                     </TextField>
                   </Grid>
                   <Grid item xs={12} sm={3}>
+                    {/* ✅ FIX MUI Error: ใช้ value={it.variantId || ""} เสมอ */}
                     <TextField
                       select label="Variant" value={it.variantId || ""} onChange={e=>updateRow(idx, { variantId: e.target.value })}
                       fullWidth size="small" disabled={!it.productId}
@@ -286,11 +359,12 @@ export default function ReceivingList() {
               </TableHead>
               <TableBody>
                 {selectedReceiving.items?.map((item: any, i:number) => (
-                  <TableRow key={i}>
-                    <TableCell>{item.product?.name || item.productName || "-"}</TableCell>
-                    <TableCell>{item.size} {item.color}</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 'bold', color: 'success.main' }}>+{item.quantity}</TableCell>
-                  </TableRow>
+                    // ✅ ใช้ Helper Function หาชื่อสินค้า
+                    <TableRow key={i}>
+                        <TableCell>{getProductName(item)}</TableCell>
+                        <TableCell>{item.size} {item.color}</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 'bold', color: 'success.main' }}>+{item.quantity}</TableCell>
+                    </TableRow>
                 ))}
               </TableBody>
             </Table>

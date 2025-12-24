@@ -6,6 +6,7 @@ const poItemSchema = new mongoose.Schema({
   size: String,
   color: String,
   quantity: Number,
+  receivedQuantity: { type: Number, default: 0 }, // ✅ เพิ่ม: เก็บยอดที่รับของแล้ว
   price: Number
 });
 
