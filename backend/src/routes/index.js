@@ -10,5 +10,6 @@ router.use('/receivings', require('./receiving'));
 router.use('/issues', require('./issue'));
 router.use('/audit-logs', require('./auditLog'));
 router.use('/tracking', require('./trackingRoutes'));
+router.use('/suppliers', require('./supplier'));
 
 module.exports = router;
