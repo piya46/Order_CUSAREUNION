@@ -1,10 +1,13 @@
+// src/pages/Products/Products.tsx
 import { useEffect, useMemo, useState } from "react";
 import {
   Box, Grid, Paper, Typography, Card, CardMedia, CardContent, Chip, Stack, Button,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, Alert, IconButton,
   Divider, Tooltip, Skeleton, InputAdornment, MenuItem, Switch, FormControlLabel,
-  Table, TableBody, TableCell, TableHead, TableRow
+  Table, TableBody, TableCell, TableHead, TableRow, Tab, Tabs, alpha, useTheme, Fade
 } from "@mui/material";
+
+// Icons
 import AddBoxIcon from "@mui/icons-material/AddBox";
 import PhotoCamera from "@mui/icons-material/PhotoCamera";
 import CheckCircle from "@mui/icons-material/CheckCircle";
@@ -22,11 +25,13 @@ import WarehouseIcon from "@mui/icons-material/Warehouse";
 import PriceCheckIcon from "@mui/icons-material/PriceCheck";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
-import { Link } from "react-router-dom";
+import SaveIcon from "@mui/icons-material/Save";
+import ImageNotSupportedIcon from "@mui/icons-material/ImageNotSupported";
 
 const API = import.meta.env.VITE_API_URL || "/api";
 function getToken() { return localStorage.getItem("aw_token") || ""; }
 
+// Types
 type Variant = {
   _id?: string;
   size: string;
@@ -55,7 +60,7 @@ type Product = {
 
 /* --- Helpers --- */
 const fmtDateInput = (iso?: string) => (iso ? new Date(iso).toISOString().slice(0, 10) : "");
-const fmtDateShow = (iso?: string) => iso ? new Date(iso).toLocaleDateString("th-TH", { day:"2-digit", month:"short", year:"numeric" }) : "-";
+const fmtDateShow = (iso?: string) => iso ? new Date(iso).toLocaleDateString("th-TH", { day:"2-digit", month:"short", year:"2-digit" }) : "-";
 const sumStock = (v?: Variant[]) => (v || []).reduce((s, x) => s + (x.stock || 0), 0);
 const sumLocked = (v?: Variant[]) => (v || []).reduce((s, x) => s + (x.locked || 0), 0);
 const sumPaid   = (v?: Variant[]) => (v || []).reduce((s, x) => s + (x.paidQty || 0), 0);
@@ -64,59 +69,54 @@ const isAfter = (iso?: string) => (iso ? now() > new Date(iso).getTime() : false
 const isBefore = (iso?: string) => (iso ? now() < new Date(iso).getTime() : false);
 const hasSaleWindow = (p: Product) => !!p.availableFrom || !!p.availableTo;
 const saleState = (p: Product) => {
-  if (!hasSaleWindow(p)) return "no-window";
-  if (p.availableFrom && isBefore(p.availableFrom)) return "before";
-  if (p.availableTo && isAfter(p.availableTo))   return "after";
-  return "during";
+  if (!hasSaleWindow(p)) return "always";
+  if (p.availableFrom && isBefore(p.availableFrom)) return "waiting";
+  if (p.availableTo && isAfter(p.availableTo))   return "closed";
+  return "active";
 };
 const filenameFromUrl = (u: string) => {
   try {
-    const path = new URL(u, window.location.origin).pathname;
-    const seg = path.split("/").pop() || "";
+    const seg = u.split("/").pop() || "";
     return decodeURIComponent(seg);
-  } catch {
-    const seg = (u || "").split("/").pop() || "";
-    return decodeURIComponent(seg);
-  }
+  } catch { return ""; }
 };
-const categories = ["เสื้อยืด","เสื้อโปโล","หมวก","กระเป๋า","ของที่ระลึก","อื่น ๆ"];
+
+const CATEGORIES = ["เสื้อยืด", "เสื้อโปโล", "หมวก", "กระเป๋า", "ของที่ระลึก", "อื่น ๆ"];
 
 export default function Products() {
+  const theme = useTheme();
   const [items, setItems] = useState<Product[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ type: 'success'|'error', text: string } | null>(null);
 
-  // filters
+  // Filters
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>("ALL");
   const [onlyActive, setOnlyActive] = useState<"all"|"active"|"inactive">("all");
-  const [onlyPre, setOnlyPre] = useState<"all"|"pre"|"nonpre">("all");
 
-  // dialogs
-  const [openUpload, setOpenUpload] = useState<string | null>(null);
-  const [files, setFiles] = useState<FileList | null>(null);
-
-  const [editing, setEditing] = useState<null | Partial<Product>>(null);
+  // Dialogs
+  const [editing, setEditing] = useState<Partial<Product> | null>(null);
+  const [tabIndex, setTabIndex] = useState(0); // 0=Info, 1=Variants, 2=Images
   const [saving, setSaving] = useState(false);
+  
   const [confirmDel, setConfirmDel] = useState<Product | null>(null);
   const [stockDlg, setStockDlg] = useState<Product | null>(null);
-
-  // ✅ Image Gallery State
+  
+  // Image Upload
+  const [uploadFiles, setUploadFiles] = useState<FileList | null>(null);
+  
+  // Image Gallery
   const [previewImages, setPreviewImages] = useState<string[] | null>(null);
-  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [currImgIdx, setCurrImgIdx] = useState(0);
 
   const load = async () => {
-    setErr(null);
     setLoading(true);
     try {
-      const res = await fetch(`${API}/products/inventory`, {
-        headers: { Authorization: `Bearer ${getToken()}` }
-      });
+      const res = await fetch(`${API}/products/inventory`, { headers: { Authorization: `Bearer ${getToken()}` } });
       const data = await res.json();
       setItems(Array.isArray(data) ? data : []);
     } catch {
-      setErr("โหลดข้อมูลสินค้าไม่สำเร็จ");
+      setMsg({ type: 'error', text: "โหลดข้อมูลสินค้าไม่สำเร็จ" });
       setItems([]);
     } finally {
       setLoading(false);
@@ -125,115 +125,19 @@ export default function Products() {
   useEffect(() => { load(); }, []);
 
   const filtered = useMemo(() => {
-    const list = items || [];
-    return list
-      .filter(p => !q
-        || p.name?.toLowerCase().includes(q.toLowerCase())
-        || p.productCode?.toLowerCase().includes(q.toLowerCase())
-        || (p.category || "").toLowerCase().includes(q.toLowerCase()))
-      .filter(p => cat === "ALL" ? true : (p.category === cat))
-      .filter(p => onlyActive === "all" ? true : (onlyActive === "active" ? !!p.isActive : !p.isActive))
-      .filter(p => onlyPre === "all" ? true : (onlyPre === "pre" ? !!p.preorder : !p.preorder));
-  }, [items, q, cat, onlyActive, onlyPre]);
+    return (items || [])
+      .filter(p => !q || p.name.toLowerCase().includes(q.toLowerCase()) || p.productCode?.toLowerCase().includes(q.toLowerCase()))
+      .filter(p => cat === "ALL" || p.category === cat)
+      .filter(p => onlyActive === "all" ? true : (onlyActive === "active" ? p.isActive : !p.isActive));
+  }, [items, q, cat, onlyActive]);
 
-  const onUpload = async () => {
-    if (!openUpload || !files?.length) return;
-    setMsg(null);
-    try {
-      const fd = new FormData();
-      Array.from(files).forEach(f => fd.append("files", f));
-      const res = await fetch(`${API}/products/${openUpload}/images`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${getToken()}` },
-        body: fd,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "อัปโหลดไม่สำเร็จ");
-      await load();
-      setOpenUpload(null);
-      setFiles(null);
-      setMsg("อัปโหลดรูปสำเร็จ");
-    } catch (e: any) {
-      setMsg(e?.message || "อัปโหลดไม่สำเร็จ");
-    }
-  };
-
-  const deleteImage = async (productId: string, url: string) => {
-    const name = filenameFromUrl(url);
-    if (!name) return;
-    if (!confirm(`ลบรูปนี้ออกจากสินค้าใช่ไหม?\n${name}`)) return;
-    try {
-      const res = await fetch(`${API}/products/${productId}/images/${encodeURIComponent(name)}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${getToken()}` }
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "ลบรูปไม่สำเร็จ");
-      setMsg("ลบรูปเรียบร้อย");
-      await load();
-    } catch (e:any) {
-      setMsg(e?.message || "ลบรูปไม่สำเร็จ");
-    }
-  };
-
-  const toggleActive = async (p: Product) => {
-    const old = p.isActive;
-    setItems(list => (list || []).map(x => x._id === p._id ? { ...x, isActive: !old } : x));
-    try {
-      const res = await fetch(`${API}/products/${p._id}`, {
-        method: "PUT",
-        headers: { "Content-Type":"application/json", Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ isActive: !old })
-      });
-      if (!res.ok) throw new Error((await res.json())?.error || "อัปเดตสถานะไม่สำเร็จ");
-    } catch (e:any) {
-      setItems(list => (list || []).map(x => x._id === p._id ? { ...x, isActive: old } : x));
-      setMsg(e?.message || "อัปเดตสถานะไม่สำเร็จ");
-    }
-  };
-
-  const openCreate = () => {
-    setEditing({
-      name: "",
-      description: "",
-      category: "",
-      preorder: false,
-      availableFrom: "",
-      availableTo: "",
-      isActive: true,
-      variants: [{ size: "F", color: "-", price: 0, stock: 0 }]
-    });
-  };
-  const openEdit = (p: Product) => {
-    setEditing({
-      ...p,
-      availableFrom: fmtDateInput(p.availableFrom),
-      availableTo: fmtDateInput(p.availableTo),
-    });
-  };
-  const closeEdit = () => setEditing(null);
-
-  const updateEditing = (patch: Partial<Product>) => setEditing(prev => ({ ...(prev || {}), ...patch }));
-  const updateVariant = (idx: number, patch: Partial<Variant>) => {
-    const v = [...(editing?.variants || [])];
-    v[idx] = { ...v[idx], ...patch };
-    updateEditing({ variants: v });
-  };
-  const addVariant = () => updateEditing({ variants: [ ...(editing?.variants || []), { size:"", color:"", price:0, stock:0 } ] });
-  const removeVariant = (idx: number) => {
-    const v = [...(editing?.variants || [])];
-    v.splice(idx, 1);
-    updateEditing({ variants: v.length ? v : [{ size:"", color:"", price:0, stock:0 }] });
-  };
-
-  const saveProduct = async () => {
+  // --- CRUD Actions ---
+  const handleSave = async () => {
     if (!editing) return;
-    if (!editing.name?.trim()) { setMsg("กรุณากรอกชื่อสินค้า"); return; }
-    if (!editing.variants || editing.variants.length === 0) { setMsg("ต้องมีอย่างน้อย 1 variant"); return; }
-    if (editing.variants.some(v => !v.size || v.price == null)) { setMsg("กรอก size และ price ของ variant ให้ครบ"); return; }
+    if (!editing.name?.trim()) { alert("กรุณากรอกชื่อสินค้า"); return; }
+    if (!editing.variants?.length) { alert("ต้องมีอย่างน้อย 1 ตัวเลือกสินค้า"); setTabIndex(1); return; }
 
     setSaving(true);
-    setMsg(null);
     try {
       const body = {
         name: editing.name,
@@ -243,8 +147,8 @@ export default function Products() {
         availableFrom: editing.availableFrom ? new Date(editing.availableFrom).toISOString() : undefined,
         availableTo: editing.availableTo ? new Date(editing.availableTo).toISOString() : undefined,
         isActive: editing.isActive !== false,
-        variants: (editing.variants || []).map(v => ({
-          size: v.size, color: (v.color || "").trim() || undefined,
+        variants: editing.variants.map(v => ({
+          size: v.size, color: (v.color || "").trim(),
           price: Number(v.price || 0), stock: Number(v.stock || 0)
         }))
       };
@@ -256,319 +160,385 @@ export default function Products() {
         body: JSON.stringify(body)
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || (isEdit ? "อัปเดตไม่สำเร็จ" : "สร้างไม่สำเร็จ"));
-      setMsg(isEdit ? "บันทึกการแก้ไขเรียบร้อย" : "สร้างสินค้าเรียบร้อย");
-      setEditing(null);
-      await load();
+      if (!res.ok) throw new Error(data?.error || "บันทึกไม่สำเร็จ");
+
+      setMsg({ type: 'success', text: isEdit ? "บันทึกข้อมูลเรียบร้อย" : "สร้างสินค้าใหม่เรียบร้อย" });
+      
+      // ถ้าสร้างใหม่ ให้เปิดหน้าต่างต่อแต่เปลี่ยนเป็นโหมดแก้ไข เพื่อให้ไปอัปรูปได้
+      if(!isEdit && data._id) {
+          setEditing({ ...editing, _id: data._id, variants: data.variants });
+          setTabIndex(2); // ไปหน้าอัปโหลดรูป
+          load(); // reload background list
+      } else {
+          setEditing(null);
+          load();
+      }
     } catch (e:any) {
-      setMsg(e?.message || "บันทึกไม่สำเร็จ");
+      alert(e.message);
     } finally {
       setSaving(false);
     }
   };
 
-  const doDelete = async () => {
+  const handleDelete = async () => {
     if (!confirmDel) return;
     setSaving(true);
     try {
-      const res = await fetch(`${API}/products/${confirmDel!._id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${getToken()}` }
+      const res = await fetch(`${API}/products/${confirmDel._id}`, { method: "DELETE", headers: { Authorization: `Bearer ${getToken()}` } });
+      if (res.ok) {
+        setMsg({ type: 'success', text: "ลบสินค้าเรียบร้อย" });
+        load();
+      } else throw new Error("ลบไม่สำเร็จ");
+    } catch(e:any) { alert(e.message); }
+    finally { setSaving(false); setConfirmDel(null); }
+  };
+
+  const handleUpload = async () => {
+    if (!editing?._id || !uploadFiles?.length) return;
+    const fd = new FormData();
+    Array.from(uploadFiles).forEach(f => fd.append("files", f));
+    try {
+      const res = await fetch(`${API}/products/${editing._id}/images`, {
+        method: "POST", headers: { Authorization: `Bearer ${getToken()}` }, body: fd
       });
+      if (!res.ok) throw new Error("Upload failed");
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "ลบสินค้าไม่สำเร็จ");
-      setConfirmDel(null);
-      setMsg("ลบสินค้าเรียบร้อย");
-      await load();
-    } catch (e:any) {
-      setMsg(e?.message || "ลบสินค้าไม่สำเร็จ");
-    } finally {
-      setSaving(false);
-    }
+      // Update local state
+      setEditing(prev => ({ ...prev, imageUrls: data.imageUrls || [] }));
+      setUploadFiles(null);
+      // Reload main list silently
+      load(); 
+    } catch (e) { alert("อัปโหลดรูปไม่สำเร็จ"); }
+  };
+
+  const handleDeleteImage = async (url: string) => {
+    if(!confirm("ลบรูปนี้?")) return;
+    const name = filenameFromUrl(url);
+    try {
+       await fetch(`${API}/products/${editing?._id}/images/${encodeURIComponent(name)}`, {
+         method: "DELETE", headers: { Authorization: `Bearer ${getToken()}` }
+       });
+       setEditing(prev => ({ ...prev, imageUrls: prev?.imageUrls?.filter(u => u !== url) }));
+       load();
+    } catch { alert("ลบรูปไม่สำเร็จ"); }
+  };
+
+  const toggleActive = async (p: Product) => {
+     // Optimistic Update
+     const newVal = !p.isActive;
+     setItems(prev => (prev||[]).map(x => x._id === p._id ? { ...x, isActive: newVal } : x));
+     try {
+        await fetch(`${API}/products/${p._id}`, {
+            method: "PUT", headers: { "Content-Type":"application/json", Authorization: `Bearer ${getToken()}` },
+            body: JSON.stringify({ isActive: newVal })
+        });
+     } catch {
+        // Revert
+        setItems(prev => (prev||[]).map(x => x._id === p._id ? { ...x, isActive: !newVal } : x));
+     }
+  };
+
+  // Form Logic
+  const openCreate = () => {
+    setEditing({ 
+        name: "", category: "", isActive: true, preorder: false, 
+        variants: [{ size: "Free Size", color: "", price: 0, stock: 0 }] 
+    });
+    setTabIndex(0);
+  };
+  const openEdit = (p: Product) => {
+    setEditing({
+      ...p,
+      availableFrom: fmtDateInput(p.availableFrom),
+      availableTo: fmtDateInput(p.availableTo),
+    });
+    setTabIndex(0);
+  };
+
+  const updateVariant = (idx: number, field: keyof Variant, val: any) => {
+    const vars = [...(editing?.variants || [])];
+    vars[idx] = { ...vars[idx], [field]: val };
+    setEditing(prev => ({ ...prev, variants: vars }));
   };
 
   return (
-    <Box p={{ xs: 2, md: 3 }}
-      sx={{
-        background:
-          "radial-gradient(1200px 500px at -10% -10%, rgba(2,132,199,.08), transparent 60%), radial-gradient(900px 380px at 110% 10%, rgba(7,193,96,.08), transparent 60%)",
-        borderRadius: 3
-      }}
-    >
-      <Paper elevation={0} sx={{
-        p: 2, mb: 2, borderRadius: 3,
-        background: "linear-gradient(135deg, rgba(7,193,96,.06), rgba(25,118,210,.06))",
-        border: "1px solid rgba(2,132,199,.12)"
-      }}>
-        <Stack direction={{ xs: "column", md: "row" }} alignItems={{ xs:"flex-start", md:"center" }} justifyContent="space-between" spacing={1.5}>
-          <Stack direction="row" spacing={1.2} alignItems="center">
-            <Inventory2Icon />
-            <Typography variant="h5" fontWeight={900}>สินค้า</Typography>
-            <Chip size="small" label={`${filtered.length.toLocaleString()} รายการ`} />
-          </Stack>
-          <Stack direction="row" spacing={1}>
-            <Button startIcon={<ListAltIcon />} variant="outlined" component={Link} to="/inventory">หน้าสต๊อกทั้งหมด</Button>
-            <Button startIcon={<Refresh />} variant="outlined" onClick={load}>รีเฟรช</Button>
-            <Button startIcon={<AddBoxIcon />} variant="contained" onClick={openCreate}>เพิ่มสินค้า</Button>
-          </Stack>
-        </Stack>
+    <Box>
+       {/* Header */}
+      <Stack direction={{ xs: "column", md: "row" }} alignItems="center" justifyContent="space-between" mb={3} spacing={2}>
+         <Stack direction="row" spacing={2} alignItems="center">
+            <Box p={1.5} borderRadius={3} bgcolor={alpha(theme.palette.primary.main, 0.1)} color="primary.main">
+                <Inventory2Icon fontSize="large" />
+            </Box>
+            <Box>
+                <Typography variant="h4" fontWeight={900}>จัดการสินค้า</Typography>
+                <Typography variant="body2" color="text.secondary">รายการสินค้าและสต๊อก (Inventory)</Typography>
+            </Box>
+         </Stack>
+         <Button variant="contained" startIcon={<AddBoxIcon />} onClick={openCreate} size="large" sx={{ borderRadius: 2, fontWeight: 700 }}>
+            เพิ่มสินค้าใหม่
+         </Button>
+      </Stack>
 
-        <Divider sx={{ my: 1.5 }} />
-        <Stack direction={{ xs: "column", md: "row" }} spacing={1.2} alignItems={{ xs:"stretch", md:"center" }} flexWrap="wrap">
-          <TextField
-            size="small" placeholder="ค้นหา (ชื่อ / โค้ด / หมวดหมู่)" value={q} onChange={e=>setQ(e.target.value)}
-            InputProps={{ startAdornment: <InputAdornment position="start"><Search /></InputAdornment> }}
-            sx={{ minWidth: 260 }}
-          />
-          <TextField select size="small" label="หมวดหมู่" value={cat} onChange={e=>setCat(e.target.value)} sx={{ minWidth: 200 }}>
-            <MenuItem value="ALL">ทั้งหมด</MenuItem>
-            {categories.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
-          </TextField>
-          <TextField select size="small" label="สถานะ" value={onlyActive} onChange={e=>setOnlyActive(e.target.value as any)} sx={{ minWidth: 180 }}>
-            <MenuItem value="all">ทั้งหมด</MenuItem>
-            <MenuItem value="active">Active</MenuItem>
-            <MenuItem value="inactive">Inactive</MenuItem>
-          </TextField>
-          <TextField select size="small" label="Preorder" value={onlyPre} onChange={e=>setOnlyPre(e.target.value as any)} sx={{ minWidth: 180 }}>
-            <MenuItem value="all">ทั้งหมด</MenuItem>
-            <MenuItem value="pre">เฉพาะ Preorder</MenuItem>
-            <MenuItem value="nonpre">ไม่ใช่ Preorder</MenuItem>
-          </TextField>
-          <Box flex={1} />
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Chip size="small" color="success" icon={<WarehouseIcon />} label={`พร้อมขายรวม: ${filtered.reduce((s,p)=> s + (p.preorder ? 0 : sumStock(p.variants)), 0).toLocaleString()}`} variant="outlined" />
-            <Chip size="small" icon={<ListAltIcon />} label={`จองไว้รวม: ${filtered.reduce((s,p)=> s + (p.preorder ? sumPaid(p.variants) : sumLocked(p.variants)), 0).toLocaleString()}`} variant="outlined" />
-            <Chip size="small" color="primary" icon={<PriceCheckIcon />} label={`ขายแล้วรวม: ${filtered.reduce((s,p)=> s + sumPaid(p.variants), 0).toLocaleString()}`} variant="outlined" />
-          </Stack>
-        </Stack>
+      {/* Filters */}
+      <Paper sx={{ p: 2, mb: 3, borderRadius: 3, boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}>
+         <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
+            <TextField 
+                size="small" placeholder="ค้นหาชื่อสินค้า..." value={q} onChange={e=>setQ(e.target.value)} 
+                InputProps={{ startAdornment: <InputAdornment position="start"><Search /></InputAdornment> }}
+                sx={{ flex: 1 }}
+            />
+            <TextField select size="small" label="หมวดหมู่" value={cat} onChange={e=>setCat(e.target.value)} sx={{ minWidth: 150 }}>
+                <MenuItem value="ALL">ทั้งหมด</MenuItem>
+                {CATEGORIES.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+            </TextField>
+            <TextField select size="small" label="สถานะ" value={onlyActive} onChange={e=>setOnlyActive(e.target.value as any)} sx={{ minWidth: 150 }}>
+                <MenuItem value="all">ทั้งหมด</MenuItem>
+                <MenuItem value="active">Active (เปิดขาย)</MenuItem>
+                <MenuItem value="inactive">Inactive (ปิดขาย)</MenuItem>
+            </TextField>
+         </Stack>
       </Paper>
 
-      {msg && <Alert sx={{ mb: 2 }} severity="info">{msg}</Alert>}
-      {err && <Alert sx={{ mb: 2 }} severity="error">{err}</Alert>}
+      {msg && <Alert severity={msg.type} onClose={()=>setMsg(null)} sx={{ mb: 3, borderRadius: 2 }}>{msg.text}</Alert>}
 
-      <Grid container spacing={2}>
-        {loading && Array.from({ length: 6 }).map((_,i)=>(
-          <Grid key={i} item xs={12} sm={6} md={4}>
-            <Paper sx={{ p: 2, height: 300, borderRadius: 3 }}>
-              <Skeleton variant="rectangular" height={180} sx={{ borderRadius: 2, mb: 1 }} />
-              <Skeleton width="60%" /><Skeleton width="40%" /><Skeleton width="80%" />
-            </Paper>
-          </Grid>
-        ))}
-
-        {!loading && filtered.length === 0 && (
-          <Grid item xs={12}><Paper sx={{ p: 4, textAlign: "center", borderRadius: 3 }}><Typography color="text.secondary">ไม่พบรายการ</Typography></Paper></Grid>
-        )}
-
-        {!loading && filtered.map(p => {
-          const cover = p.imageUrls?.[0] || "https://via.placeholder.com/800x500?text=No+Image";
-          const sState = saleState(p);
-          const sumAvail = sumStock(p.variants);
-          const sumHold  = p.preorder ? sumPaid(p.variants) : sumLocked(p.variants);
-          const totalSold = sumPaid(p.variants);
-          return (
-            <Grid key={p._id} item xs={12} sm={6} md={4}>
-              <Card sx={{ borderRadius: 3, overflow: "hidden", height: "100%", display: "flex", flexDirection: "column" }}>
-                {/* ✅ CardMedia Clickable */}
-                <Box 
-                  sx={{ position: "relative", cursor: "pointer" }}
-                  onClick={() => { if(p.imageUrls?.length) { setPreviewImages(p.imageUrls); setCurrentImageIndex(0); } }}
-                >
-                  <CardMedia
-                    component="img" height={180} image={cover}
-                    onError={(e:any)=>{e.currentTarget.src="https://via.placeholder.com/800x500?text=No+Image"}}
-                  />
-                  {/* Status Chips */}
-                  {sState === "after" && <Chip color="default" label="ปิดการขาย" size="small" sx={{ position: "absolute", top: 8, left: 8, fontWeight: 800 }} />}
-                  {sState === "before" && <Chip color="warning" label="ยังไม่เปิดขาย" size="small" sx={{ position: "absolute", top: 8, left: 8, fontWeight: 800 }} />}
-                  {sState === "during" && <Chip color="success" label="กำลังขาย" size="small" sx={{ position: "absolute", top: 8, left: 8, fontWeight: 800 }} />}
-                  
-                  {/* Count Indicator */}
-                  {p.imageUrls && p.imageUrls.length > 1 && (
-                    <Chip 
-                      label={`+${p.imageUrls.length - 1}`} 
-                      size="small" 
-                      sx={{ position: "absolute", bottom: 8, right: 8, bgcolor: "rgba(0,0,0,0.6)", color: "white" }} 
-                    />
-                  )}
-                </Box>
-
-                <CardContent sx={{ flex: 1 }}>
-                  <Stack direction="row" alignItems="center" justifyContent="space-between">
-                    <Typography fontWeight={900} noWrap title={p.name}>{p.name}</Typography>
-                    <Chip size="small" variant="outlined" label={p.productCode || "-"} />
-                  </Stack>
-                  {p.description && <Typography variant="body2" color="text.secondary" sx={{ mt: .25 }} noWrap title={p.description}>{p.description}</Typography>}
-
-                  <Stack direction="row" spacing={.5} mt={1} flexWrap="wrap">
-                    {p.category && <Chip size="small" icon={<CategoryIcon />} label={p.category} variant="outlined" />}
-                    {p.preorder && <Chip size="small" color="warning" icon={<LocalOffer />} label="Preorder (∞)" />}
-                    <Chip size="small" color={p.isActive ? "success" : "default"} icon={p.isActive ? <CheckCircle /> : <Cancel />} label={p.isActive ? "Active" : "Inactive"} variant={p.isActive ? "filled" : "outlined"} />
-                    {(p.availableFrom || p.availableTo) && <Chip size="small" variant="outlined" label={`วางขาย: ${fmtDateShow(p.availableFrom)} → ${fmtDateShow(p.availableTo)}`} />}
-                  </Stack>
-
-                  <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
-                    <Chip size="small" color="success" variant="outlined" icon={<WarehouseIcon />} label={p.preorder ? "พร้อมขาย: ∞" : `พร้อมขาย: ${sumAvail.toLocaleString()}`} />
-                    <Chip size="small" variant="outlined" icon={<ListAltIcon />} label={`จองไว้: ${sumHold.toLocaleString()}`} />
-                    <Chip size="small" variant="outlined" color="primary" icon={<PriceCheckIcon />} label={`ขายแล้ว: ${totalSold.toLocaleString()}`} />
-                  </Stack>
-
-                  {p.imageUrls && p.imageUrls.length > 0 && (
-                    <Stack direction="row" spacing={1} mt={1} sx={{ overflowX: "auto" }}>
-                      {p.imageUrls.map((u) => (
-                        <Box key={u} sx={{ position: "relative", display: "inline-block" }}>
-                          <img src={u} alt="" height={50} style={{ borderRadius: 6, border: "1px solid #eee" }} />
-                          <IconButton size="small" onClick={()=>deleteImage(p._id!, u)} sx={{ position: "absolute", top: -8, right: -8, bgcolor: "rgba(0,0,0,.5)", color: "#fff", "&:hover": { bgcolor: "rgba(0,0,0,.65)" } }}><CloseIcon fontSize="inherit" /></IconButton>
-                        </Box>
-                      ))}
-                    </Stack>
-                  )}
-                </CardContent>
-                <Box px={2} pb={2}>
-                  <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
-                    <Stack direction="row" spacing={1}>
-                      <Tooltip title="อัปโหลดรูป"><span><Button size="small" variant="outlined" startIcon={<PhotoCamera />} onClick={()=>setOpenUpload(p._id!)}>รูป</Button></span></Tooltip>
-                      <Button size="small" variant="outlined" startIcon={<Edit />} onClick={()=>openEdit(p)}>แก้ไข</Button>
-                      <Button size="small" variant="outlined" startIcon={<WarehouseIcon />} onClick={()=>setStockDlg(p)}>ดูสต๊อก</Button>
-                    </Stack>
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <FormControlLabel control={<Switch checked={!!p.isActive} onChange={()=>toggleActive(p)} color="success" />} label={<Typography variant="caption">{p.isActive ? "Active" : "Inactive"}</Typography>} />
-                      <Tooltip title="ลบสินค้า"><span><IconButton onClick={()=>setConfirmDel(p)} color="error"><Delete /></IconButton></span></Tooltip>
-                    </Stack>
-                  </Stack>
-                </Box>
-              </Card>
+      {/* Products Grid */}
+      <Grid container spacing={3}>
+         {loading ? Array.from({length:6}).map((_,i)=>(
+            <Grid item xs={12} sm={6} md={4} key={i}>
+               <Skeleton variant="rectangular" height={300} sx={{ borderRadius: 3 }} />
             </Grid>
-          );
-        })}
+         )) : filtered.map(p => {
+             const cover = p.imageUrls?.[0];
+             const state = saleState(p);
+             const isPre = p.preorder;
+             const totalStock = sumStock(p.variants);
+             
+             return (
+                 <Grid item xs={12} sm={6} md={4} key={p._id}>
+                     <Card sx={{ 
+                         height: '100%', borderRadius: 3, display: 'flex', flexDirection: 'column', 
+                         transition: 'transform 0.2s', '&:hover': { transform: 'translateY(-4px)', boxShadow: theme.shadows[4] }
+                     }}>
+                        {/* Image Cover */}
+                        <Box sx={{ position: 'relative', paddingTop: '56.25%', bgcolor: '#f5f5f5', cursor: 'pointer' }} 
+                             onClick={()=>{if(p.imageUrls?.length) { setPreviewImages(p.imageUrls); setCurrImgIdx(0); }}}>
+                             {cover ? (
+                                <Box component="img" src={cover} sx={{ position: 'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover' }} />
+                             ) : (
+                                <Stack alignItems="center" justifyContent="center" sx={{ position: 'absolute', inset: 0, color: 'text.disabled' }}>
+                                    <ImageNotSupportedIcon sx={{ fontSize: 48 }} />
+                                </Stack>
+                             )}
+                             
+                             {/* Status Badges */}
+                             <Stack direction="column" spacing={0.5} sx={{ position: 'absolute', top: 10, left: 10 }}>
+                                 {isPre && <Chip label="Preorder" color="warning" size="small" sx={{ fontWeight: 700 }} />}
+                                 {state === "waiting" && <Chip label="เร็วๆ นี้" color="info" size="small" />}
+                                 {state === "closed" && <Chip label="ปิดรับแล้ว" color="error" size="small" />}
+                             </Stack>
+                             {p.imageUrls && p.imageUrls.length > 1 && (
+                                 <Chip label={`+${p.imageUrls.length-1} รูป`} size="small" sx={{ position: 'absolute', bottom: 10, right: 10, bgcolor: 'rgba(0,0,0,0.6)', color: 'white' }} />
+                             )}
+                        </Box>
+
+                        <CardContent sx={{ flex: 1, pb: 1 }}>
+                            <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={1}>
+                                <Typography fontWeight={800} variant="h6" sx={{ lineHeight: 1.2, mb: 0.5 }}>{p.name}</Typography>
+                                <Switch size="small" checked={!!p.isActive} onChange={()=>toggleActive(p)} color="success" />
+                            </Stack>
+                            <Typography variant="body2" color="text.secondary" noWrap mb={1}>{p.description || "ไม่มีรายละเอียด"}</Typography>
+                            
+                            <Stack direction="row" spacing={1} mb={2}>
+                                <Chip icon={<CategoryIcon sx={{fontSize:'14px!important'}} />} label={p.category || "General"} size="small" variant="outlined" />
+                                <Chip label={p.productCode} size="small" variant="outlined" sx={{ display: p.productCode ? 'inline-flex' : 'none' }} />
+                            </Stack>
+
+                            <Divider sx={{ my: 1.5 }} />
+                            
+                            <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                <Box textAlign="center">
+                                    <Typography variant="caption" color="text.secondary">คงเหลือ</Typography>
+                                    <Typography fontWeight={700} color={isPre ? "warning.main" : totalStock > 0 ? "success.main" : "error.main"}>
+                                        {isPre ? "∞" : totalStock}
+                                    </Typography>
+                                </Box>
+                                <Box textAlign="center">
+                                    <Typography variant="caption" color="text.secondary">จองแล้ว</Typography>
+                                    <Typography fontWeight={700}>{isPre ? sumPaid(p.variants) : sumLocked(p.variants)}</Typography>
+                                </Box>
+                                <Box textAlign="center">
+                                    <Typography variant="caption" color="text.secondary">ขายแล้ว</Typography>
+                                    <Typography fontWeight={700} color="primary.main">{sumPaid(p.variants)}</Typography>
+                                </Box>
+                            </Stack>
+                        </CardContent>
+                        
+                        <Stack direction="row" sx={{ p: 1.5, pt: 0 }}>
+                            <Button fullWidth variant="outlined" startIcon={<Edit />} onClick={()=>openEdit(p)} sx={{ mr: 1, borderRadius: 2 }}>แก้ไข</Button>
+                            <Button fullWidth variant="outlined" startIcon={<ListAltIcon />} onClick={()=>setStockDlg(p)} sx={{ borderRadius: 2 }}>สต๊อก</Button>
+                        </Stack>
+                     </Card>
+                 </Grid>
+             );
+         })}
       </Grid>
+      
+      {/* Create / Edit Dialog */}
+      <Dialog open={!!editing} onClose={()=>!saving && setEditing(null)} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+          <DialogTitle sx={{ borderBottom: '1px solid', borderColor: 'divider', px: 3, py: 2 }}>
+              <Typography variant="h6" fontWeight={800}>{editing?._id ? "แก้ไขสินค้า" : "สร้างสินค้าใหม่"}</Typography>
+          </DialogTitle>
+          <DialogContent sx={{ p: 0 }}>
+             <Tabs value={tabIndex} onChange={(_,v)=>setTabIndex(v)} sx={{ px: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+                <Tab label="1. ข้อมูลทั่วไป" />
+                <Tab label={`2. ตัวเลือกสินค้า (${editing?.variants?.length || 0})`} />
+                <Tab label={`3. รูปภาพ (${editing?.imageUrls?.length || 0})`} disabled={!editing?._id} />
+             </Tabs>
 
-      <Dialog open={Boolean(openUpload)} onClose={()=>{setOpenUpload(null); setFiles(null);}} maxWidth="sm" fullWidth>
-        <DialogTitle>อัปโหลดรูปสินค้า</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" mb={1}>รองรับเลือกหลายไฟล์ (สูงสุด 10) • field: <b>files</b></Typography>
-          <input type="file" multiple accept="image/*" onChange={e=>setFiles(e.target.files)} />
-          <Alert sx={{ mt: 1 }} severity="info">หลังอัปโหลด ระบบจะเพิ่มชื่อไฟล์ลง <code>images</code> และส่ง <code>imageUrls</code> กลับมาเพื่อแสดงผล</Alert>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={()=>{setOpenUpload(null); setFiles(null);}}>ยกเลิก</Button>
-          <Button variant="contained" onClick={onUpload} disabled={!files?.length}>อัปโหลด</Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={!!stockDlg} onClose={()=>setStockDlg(null)} maxWidth="sm" fullWidth>
-        <DialogTitle>สต๊อกสินค้า — {stockDlg?.name}</DialogTitle>
-        <DialogContent>
-          {stockDlg && (
-            <>
-              <Stack direction="row" spacing={1} mb={1} flexWrap="wrap">
-                <Chip size="small" color="success" variant="outlined" icon={<WarehouseIcon />} label={stockDlg.preorder ? "พร้อมขาย: ∞" : `พร้อมขาย: ${sumStock(stockDlg.variants).toLocaleString()}`} />
-                <Chip size="small" variant="outlined" icon={<ListAltIcon />} label={`จองไว้: ${(stockDlg.preorder ? sumPaid(stockDlg.variants) : sumLocked(stockDlg.variants)).toLocaleString()}`} />
-                <Chip size="small" variant="outlined" color="primary" icon={<PriceCheckIcon />} label={`ขายแล้ว: ${sumPaid(stockDlg.variants).toLocaleString()}`} />
-              </Stack>
-              <Table size="small" stickyHeader>
-                <TableHead>
-                  <TableRow><TableCell>Size</TableCell><TableCell>Color</TableCell><TableCell align="right">ราคา</TableCell><TableCell align="right">พร้อมขาย</TableCell><TableCell align="right">จองไว้</TableCell><TableCell align="right">ขายแล้ว</TableCell></TableRow>
-                </TableHead>
-                <TableBody>
-                  {stockDlg.variants.map((v, i) => (
-                    <TableRow key={v._id || i}>
-                      <TableCell>{v.size || "-"}</TableCell><TableCell>{v.color || "-"}</TableCell><TableCell align="right">{(v.price || 0).toLocaleString()}</TableCell>
-                      <TableCell align="right">{stockDlg.preorder ? "∞" : (v.stock || 0).toLocaleString()}</TableCell>
-                      <TableCell align="right">{(stockDlg.preorder ? (v.paidQty || 0) : (v.locked || 0)).toLocaleString()}</TableCell>
-                      <TableCell align="right">{(v.paidQty || 0).toLocaleString()}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </>
-          )}
-        </DialogContent>
-        <DialogActions><Button onClick={()=>setStockDlg(null)}>ปิด</Button></DialogActions>
-      </Dialog>
-
-      <Dialog open={!!editing} onClose={closeEdit} maxWidth="md" fullWidth>
-        <DialogTitle>{editing?._id ? "แก้ไขสินค้า" : "สร้างสินค้าใหม่"}</DialogTitle>
-        <DialogContent>
-          <Stack spacing={1.5} sx={{ mt: .5 }}>
-            <Stack direction={{ xs:"column", md:"row" }} spacing={1.25}>
-              <TextField label="ชื่อสินค้า" fullWidth value={editing?.name || ""} onChange={e=>updateEditing({ name: e.target.value })} />
-              <TextField select label="หมวดหมู่" fullWidth value={editing?.category || ""} onChange={e=>updateEditing({ category: e.target.value })}>
-                <MenuItem value="">(ไม่ระบุ)</MenuItem>
-                {categories.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
-              </TextField>
-            </Stack>
-            <TextField label="รายละเอียด" multiline minRows={2} value={editing?.description || ""} onChange={e=>updateEditing({ description: e.target.value })} placeholder="ข้อมูลเพิ่มเติม/คุณสมบัติ" />
-            <Stack direction={{ xs:"column", md:"row" }} spacing={1.25}>
-              <TextField label="เริ่มวางขาย" type="date" InputLabelProps={{ shrink: true }} value={editing?.availableFrom || ""} onChange={e=>updateEditing({ availableFrom: e.target.value })} fullWidth />
-              <TextField label="สิ้นสุดวางขาย" type="date" InputLabelProps={{ shrink: true }} value={editing?.availableTo || ""} onChange={e=>updateEditing({ availableTo: e.target.value })} fullWidth />
-            </Stack>
-            <Stack direction={{ xs:"column", sm:"row" }} spacing={2} alignItems="center">
-              <FormControlLabel control={<Switch checked={!!editing?.preorder} onChange={e=>updateEditing({ preorder: e.target.checked })} />} label="Preorder (สต๊อก ∞)" />
-              <FormControlLabel control={<Switch checked={editing?.isActive !== false} onChange={e=>updateEditing({ isActive: e.target.checked })} />} label="Active" />
-              {editing?.productCode && <Chip size="small" label={`Code: ${editing.productCode}`} />}
-            </Stack>
-            <Divider />
-            <Typography fontWeight={900}>ตัวเลือก (Variants)</Typography>
-            <Alert severity="info">กรอก <b>Size</b> และ <b>Price</b> ให้ครบ — Color ไม่กรอกได้ (จะเป็น "-")</Alert>
-            {(editing?.variants || []).map((v, idx) => (
-              <Stack key={idx} direction={{ xs:"column", md:"row" }} spacing={1} alignItems="center">
-                <TextField label="Size" value={v.size || ""} onChange={e=>updateVariant(idx, { size: e.target.value })} sx={{ minWidth: 120 }} />
-                <TextField label="Color" value={v.color || ""} onChange={e=>updateVariant(idx, { color: e.target.value })} sx={{ minWidth: 160 }} />
-                <TextField label="Price" type="number" value={v.price ?? 0} onChange={e=>updateVariant(idx, { price: +e.target.value })} InputProps={{ startAdornment: <InputAdornment position="start">฿</InputAdornment> }} />
-                <TextField label="Stock" type="number" value={v.stock ?? 0} onChange={e=>updateVariant(idx, { stock: +e.target.value })} helperText={editing?.preorder ? "Preorder: ถือเป็น ∞" : "สต๊อกปกติ"} />
-                <IconButton onClick={()=>removeVariant(idx)} color="error"><Delete /></IconButton>
-              </Stack>
-            ))}
-            <Button variant="outlined" onClick={addVariant} startIcon={<AddBoxIcon />}>เพิ่มตัวเลือก</Button>
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closeEdit}>ยกเลิก</Button>
-          <Button variant="contained" onClick={saveProduct} disabled={saving}>{saving ? "กำลังบันทึก…" : "บันทึก"}</Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={!!confirmDel} onClose={()=>setConfirmDel(null)}>
-        <DialogTitle>ลบสินค้า</DialogTitle>
-        <DialogContent>คุณต้องการลบสินค้า <b>{confirmDel?.name}</b> ใช่หรือไม่? การกระทำนี้ไม่สามารถย้อนกลับได้</DialogContent>
-        <DialogActions>
-          <Button onClick={()=>setConfirmDel(null)}>ยกเลิก</Button>
-          <Button variant="contained" color="error" onClick={doDelete} disabled={saving}>ลบ</Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* ✅ Gallery Dialog */}
-      <Dialog 
-        open={!!previewImages} 
-        onClose={() => setPreviewImages(null)} 
-        maxWidth="lg"
-        PaperProps={{ style: { backgroundColor: "transparent", boxShadow: "none" } }}
-      >
-        {previewImages && (
-          <Box position="relative" display="flex" justifyContent="center" alignItems="center" p={2}>
-             <img 
-               src={previewImages[currentImageIndex]} 
-               style={{ maxHeight: "85vh", maxWidth: "100%", borderRadius: 8 }} 
-             />
-             {previewImages.length > 1 && (
-               <>
-                 <IconButton 
-                   onClick={(e) => { e.stopPropagation(); setCurrentImageIndex(prev => prev > 0 ? prev - 1 : previewImages.length - 1); }}
-                   sx={{ position: "absolute", left: 20, color: "white", bgcolor: "rgba(0,0,0,0.5)", '&:hover':{bgcolor:"rgba(0,0,0,0.8)"} }}
-                 >
-                   <ArrowBackIcon />
-                 </IconButton>
-                 <IconButton 
-                   onClick={(e) => { e.stopPropagation(); setCurrentImageIndex(prev => prev < previewImages.length - 1 ? prev + 1 : 0); }}
-                   sx={{ position: "absolute", right: 20, color: "white", bgcolor: "rgba(0,0,0,0.5)", '&:hover':{bgcolor:"rgba(0,0,0,0.8)"} }}
-                 >
-                   <ArrowForwardIcon />
-                 </IconButton>
-               </>
+             {/* Tab 0: General Info */}
+             {tabIndex === 0 && (
+                <Stack spacing={2} sx={{ p: 3 }}>
+                    <TextField label="ชื่อสินค้า" fullWidth value={editing?.name} onChange={e=>setEditing({...editing, name: e.target.value})} autoFocus />
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                        <TextField select label="หมวดหมู่" fullWidth value={editing?.category} onChange={e=>setEditing({...editing, category: e.target.value})}>
+                            <MenuItem value="">ไม่ระบุ</MenuItem>
+                            {CATEGORIES.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+                        </TextField>
+                        <TextField label="รหัสสินค้า (Optional)" fullWidth value={editing?.productCode||""} onChange={e=>setEditing({...editing, productCode: e.target.value})} />
+                    </Stack>
+                    <TextField label="รายละเอียด" multiline rows={3} value={editing?.description} onChange={e=>setEditing({...editing, description: e.target.value})} />
+                    
+                    <Typography variant="subtitle2" fontWeight={700} mt={1}>การตั้งค่าการขาย</Typography>
+                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} mb={2}>
+                             <FormControlLabel control={<Switch checked={!!editing?.isActive} onChange={e=>setEditing({...editing, isActive: e.target.checked})} color="success" />} label="เปิดขาย (Active)" />
+                             <FormControlLabel control={<Switch checked={!!editing?.preorder} onChange={e=>setEditing({...editing, preorder: e.target.checked})} color="warning" />} label="สินค้า Preorder (สต๊อกไม่จำกัด)" />
+                        </Stack>
+                        <Stack direction="row" spacing={2} alignItems="center">
+                            <TextField type="date" label="เริ่มขาย" InputLabelProps={{shrink:true}} value={editing?.availableFrom||""} onChange={e=>setEditing({...editing, availableFrom: e.target.value})} size="small" />
+                            <Typography>-</Typography>
+                            <TextField type="date" label="สิ้นสุด" InputLabelProps={{shrink:true}} value={editing?.availableTo||""} onChange={e=>setEditing({...editing, availableTo: e.target.value})} size="small" />
+                        </Stack>
+                    </Paper>
+                </Stack>
              )}
-          </Box>
-        )}
+
+             {/* Tab 1: Variants */}
+             {tabIndex === 1 && (
+                <Box sx={{ p: 3 }}>
+                    <Alert severity="info" sx={{ mb: 2 }}>กำหนดขนาด สี และราคาของสินค้า (ต้องมีอย่างน้อย 1 รายการ)</Alert>
+                    <Table size="small" sx={{ border: '1px solid', borderColor: 'divider' }}>
+                        <TableHead sx={{ bgcolor: '#f5f5f5' }}>
+                            <TableRow>
+                                <TableCell width="25%">Size</TableCell>
+                                <TableCell width="25%">Color</TableCell>
+                                <TableCell width="20%">Price</TableCell>
+                                <TableCell width="20%">Stock</TableCell>
+                                <TableCell width="10%"></TableCell>
+                            </TableRow>
+                        </TableHead>
+                        <TableBody>
+                            {(editing?.variants || []).map((v, i) => (
+                                <TableRow key={i}>
+                                    <TableCell><TextField size="small" fullWidth value={v.size} onChange={e=>updateVariant(i, 'size', e.target.value)} placeholder="เช่น S, M, L" /></TableCell>
+                                    <TableCell><TextField size="small" fullWidth value={v.color||""} onChange={e=>updateVariant(i, 'color', e.target.value)} placeholder="เช่น แดง, ดำ" /></TableCell>
+                                    <TableCell><TextField size="small" type="number" fullWidth value={v.price} onChange={e=>updateVariant(i, 'price', +e.target.value)} /></TableCell>
+                                    <TableCell><TextField size="small" type="number" fullWidth value={v.stock} onChange={e=>updateVariant(i, 'stock', +e.target.value)} disabled={!!editing?.preorder} /></TableCell>
+                                    <TableCell align="center">
+                                        <IconButton size="small" color="error" onClick={()=>{
+                                            const nv = [...(editing?.variants||[])]; nv.splice(i,1);
+                                            setEditing({...editing, variants: nv});
+                                        }}><Delete fontSize="small" /></IconButton>
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                    <Button startIcon={<AddBoxIcon />} sx={{ mt: 1 }} onClick={()=>setEditing({...editing, variants: [...(editing?.variants||[]), {size:"", color:"", price:0, stock:0}]})}>
+                        เพิ่มตัวเลือก
+                    </Button>
+                </Box>
+             )}
+
+             {/* Tab 2: Images */}
+             {tabIndex === 2 && (
+                 <Box sx={{ p: 3 }}>
+                     <Stack direction="row" spacing={1} mb={2}>
+                        <Button component="label" variant="contained" startIcon={<PhotoCamera />}>
+                            เลือกรูปภาพ
+                            <input type="file" hidden multiple accept="image/*" onChange={e=>setUploadFiles(e.target.files)} />
+                        </Button>
+                        <Button variant="outlined" onClick={handleUpload} disabled={!uploadFiles?.length}>อัปโหลด ({uploadFiles?.length || 0})</Button>
+                     </Stack>
+                     
+                     <Grid container spacing={2}>
+                         {editing?.imageUrls?.map(u => (
+                             <Grid item xs={6} sm={4} md={3} key={u}>
+                                 <Box sx={{ position: 'relative', paddingTop: '100%' }}>
+                                     <Box component="img" src={u} sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', borderRadius: 2, border: '1px solid #eee' }} />
+                                     <IconButton size="small" onClick={()=>handleDeleteImage(u)} sx={{ position: 'absolute', top: 4, right: 4, bgcolor: 'rgba(255,255,255,0.9)', color: 'error.main', '&:hover': { bgcolor: '#fff' } }}>
+                                         <Delete fontSize="small" />
+                                     </IconButton>
+                                 </Box>
+                             </Grid>
+                         ))}
+                     </Grid>
+                     {!editing?.imageUrls?.length && <Typography align="center" color="text.secondary" my={4}>ยังไม่มีรูปภาพ</Typography>}
+                 </Box>
+             )}
+          </DialogContent>
+          <DialogActions sx={{ px: 3, py: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+              {editing?._id && <Button color="error" onClick={()=>setConfirmDel(editing as Product)} sx={{ mr: 'auto' }}>ลบสินค้านี้</Button>}
+              <Button onClick={()=>setEditing(null)} color="inherit">ปิด</Button>
+              <Button variant="contained" onClick={handleSave} disabled={saving} startIcon={<SaveIcon />}>บันทึกข้อมูล</Button>
+          </DialogActions>
+      </Dialog>
+
+      {/* Stock Dialog */}
+      <Dialog open={!!stockDlg} onClose={()=>setStockDlg(null)} maxWidth="sm" fullWidth>
+         <DialogTitle>📦 เช็คสต๊อก: {stockDlg?.name}</DialogTitle>
+         <DialogContent dividers>
+             <Table size="small">
+                 <TableHead><TableRow><TableCell>แบบ</TableCell><TableCell align="right">ราคา</TableCell><TableCell align="right">คงเหลือ</TableCell><TableCell align="right">จอง</TableCell><TableCell align="right">ขายแล้ว</TableCell></TableRow></TableHead>
+                 <TableBody>
+                     {stockDlg?.variants.map((v, i) => (
+                         <TableRow key={i}>
+                             <TableCell>{v.size} {v.color && `(${v.color})`}</TableCell>
+                             <TableCell align="right">{v.price.toLocaleString()}</TableCell>
+                             <TableCell align="right" sx={{ fontWeight: 700, color: 'success.main' }}>{stockDlg.preorder ? '∞' : v.stock}</TableCell>
+                             <TableCell align="right">{stockDlg.preorder ? v.paidQty : v.locked}</TableCell>
+                             <TableCell align="right">{v.paidQty}</TableCell>
+                         </TableRow>
+                     ))}
+                 </TableBody>
+             </Table>
+         </DialogContent>
+         <DialogActions><Button onClick={()=>setStockDlg(null)}>ปิด</Button></DialogActions>
+      </Dialog>
+      
+      {/* Delete Confirm */}
+      <Dialog open={!!confirmDel} onClose={()=>setConfirmDel(null)}>
+          <DialogTitle>ยืนยันการลบ?</DialogTitle>
+          <DialogContent>คุณต้องการลบสินค้า <b>{confirmDel?.name}</b> ใช่หรือไม่?</DialogContent>
+          <DialogActions>
+              <Button onClick={()=>setConfirmDel(null)}>ยกเลิก</Button>
+              <Button onClick={handleDelete} variant="contained" color="error">ลบสินค้า</Button>
+          </DialogActions>
+      </Dialog>
+
+      {/* Fullscreen Image Preview */}
+      <Dialog open={!!previewImages} onClose={()=>setPreviewImages(null)} maxWidth="lg" PaperProps={{ sx: { bgcolor: 'transparent', boxShadow: 'none' } }}>
+          {previewImages && (
+              <Box position="relative" display="flex" justifyContent="center">
+                  <Box component="img" src={previewImages[currImgIdx]} sx={{ maxHeight: '85vh', maxWidth: '100%', borderRadius: 2 }} />
+                  {previewImages.length > 1 && (
+                      <>
+                        <IconButton onClick={()=>setCurrImgIdx(currImgIdx > 0 ? currImgIdx-1 : previewImages.length-1)} sx={{ position: 'absolute', left: 0, top: '50%', color: 'white', bgcolor: 'rgba(0,0,0,0.5)' }}><ArrowBackIcon /></IconButton>
+                        <IconButton onClick={()=>setCurrImgIdx(currImgIdx < previewImages.length-1 ? currImgIdx+1 : 0)} sx={{ position: 'absolute', right: 0, top: '50%', color: 'white', bgcolor: 'rgba(0,0,0,0.5)' }}><ArrowForwardIcon /></IconButton>
+                      </>
+                  )}
+              </Box>
+          )}
       </Dialog>
     </Box>
   );

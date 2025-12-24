@@ -1,56 +1,82 @@
+// src/theme.ts
 import { createTheme } from '@mui/material/styles';
 
 const theme = createTheme({
   palette: {
     mode: 'light',
     primary: {
-      main: '#2563EB', // Modern Blue
-      light: '#60A5FA',
-      dark: '#1E40AF',
+      main: '#FFB300', // Amber 600 - สีเหลืองทองสวยๆ
+      light: '#FFE54C',
+      dark: '#C68400',
+      contrastText: '#212121', // ตัวหนังสือสีเข้มเพื่อให้อ่านง่ายบนพื้นเหลือง
     },
     secondary: {
-      main: '#10B981', // Emerald Green (Success)
+      main: '#212121', // สีดำ Charcoal (แทนลายเสือ)
     },
     background: {
-      default: '#F3F4F6', // Light Gray background for dashboard
+      default: '#FFFDF5', // พื้นหลังขาวอมเหลืองนวลๆ สบายตา
       paper: '#FFFFFF',
     },
     status: {
-      pending: '#F59E0B', // Amber
-      processing: '#3B82F6', // Blue
-      completed: '#10B981', // Green
-      cancelled: '#EF4444', // Red
-      backorder: '#8B5CF6', // Purple (สำหรับรอของ)
+      pending: '#FF8F00', // Amber Dark
+      processing: '#1E88E5', // Blue
+      completed: '#43A047', // Green
+      cancelled: '#E53935', // Red
+      backorder: '#8E24AA', // Purple
     }
   },
   typography: {
-    fontFamily: '"Prompt", "Roboto", "Helvetica", "Arial", sans-serif', // ใช้ Prompt ให้เข้ากับภาษาไทย
-    h1: { fontWeight: 700 },
-    h2: { fontWeight: 700 },
-    h3: { fontWeight: 600 },
-    button: { textTransform: 'none', fontWeight: 600 }, // ปุ่มไม่ต้องตัวใหญ่หมด
+    fontFamily: '"Prompt", "Roboto", "Helvetica", "Arial", sans-serif',
+    h1: { fontWeight: 800, letterSpacing: -1 },
+    h2: { fontWeight: 700, letterSpacing: -0.5 },
+    h3: { fontWeight: 700 },
+    h4: { fontWeight: 700 },
+    h5: { fontWeight: 700 },
+    h6: { fontWeight: 700 },
+    button: { textTransform: 'none', fontWeight: 700, fontSize: '1rem' },
+  },
+  shape: {
+    borderRadius: 16, // เพิ่มความมนให้ดู Friendly ขึ้น
   },
   components: {
     MuiButton: {
       styleOverrides: {
         root: {
-          borderRadius: 8, // ปุ่มมน
+          borderRadius: 12,
           boxShadow: 'none',
-          '&:hover': { boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' },
+          padding: '10px 24px',
+          '&:hover': {
+            boxShadow: '0 4px 12px rgba(255, 179, 0, 0.4)', // เงาสีเหลืองเวลานำเมาส์ไปวาง
+            transform: 'translateY(-1px)',
+          },
+          transition: 'all 0.2s ease-in-out',
         },
+        containedPrimary: {
+          color: '#212121', // ปุ่มสีเหลือง ตัวหนังสือสีดำ
+        }
       },
     },
     MuiCard: {
       styleOverrides: {
         root: {
-          borderRadius: 12,
-          boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
+          borderRadius: 20,
+          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.05)',
+          border: '1px solid rgba(0,0,0,0.03)',
         },
       },
     },
+    MuiPaper: {
+      styleOverrides: {
+        root: {
+          backgroundImage: 'none',
+        }
+      }
+    },
     MuiChip: {
       styleOverrides: {
-        root: { fontWeight: 500, borderRadius: 6 },
+        root: { fontWeight: 600, borderRadius: 8 },
+        filled: { border: '1px solid transparent' },
+        outlined: { border: '1px solid currentColor', fontWeight: 700 },
       },
     },
   },

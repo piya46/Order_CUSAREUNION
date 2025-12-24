@@ -23,7 +23,7 @@ import BugReportIcon from "@mui/icons-material/BugReport";
 import ArticleIcon from "@mui/icons-material/Article";
 import WarehouseIcon from "@mui/icons-material/Warehouse";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
-import StoreIcon from "@mui/icons-material/Store"; // ✅ เพิ่มไอคอน
+import StoreIcon from "@mui/icons-material/Store";
 
 import { Link } from "react-router-dom";
 import { getToken } from "../lib/session";
@@ -71,18 +71,20 @@ function getExpMsFromToken(): number | null {
 const Greeting = ({ user }: { user: any }) => {
   const hour = new Date().getHours();
   let text = "สวัสดีครับ";
-  let icon = "👋";
-  if (hour < 12) { text = "อรุณสวัสดิ์"; icon = "☕"; }
+  let icon = "🐯"; // ใช้เสือน้อย
+  if (hour < 12) { text = "อรุณสวัสดิ์"; icon = "🌤️"; }
   else if (hour < 18) { text = "สวัสดีตอนบ่าย"; icon = "☀️"; }
   else { text = "สวัสดีตอนเย็น"; icon = "🌙"; }
 
   return (
     <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} style={{ marginBottom: 24 }}>
-        <Typography variant="h4" fontWeight={900} gutterBottom>
-            {icon} {text}, {user?.name || "Admin"}!
-        </Typography>
-        <Typography color="text.secondary">
-            ภาพรวมระบบและการขายของคุณวันนี้
+        <Stack direction="row" alignItems="center" spacing={1}>
+             <Typography variant="h4" fontWeight={900} sx={{ color: '#212121' }}>
+                {icon} {text}, คุณ{user?.name || "Admin"}!
+            </Typography>
+        </Stack>
+        <Typography color="text.secondary" fontWeight={500}>
+            วันนี้มีอะไรให้พี่เสือช่วยดูแลไหมครับ? 🐅
         </Typography>
     </motion.div>
   );
@@ -125,9 +127,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     load();
-    const iv = setInterval(() => {
-      if (document.visibilityState === "visible") load();
-    }, 30000);
+    const iv = setInterval(() => { if (document.visibilityState === "visible") load(); }, 30000);
     const onVis = () => { if (document.visibilityState === "visible") load(); };
     document.addEventListener("visibilitychange", onVis);
     return () => { clearInterval(iv); document.removeEventListener("visibilitychange", onVis); abortRef.current?.abort(); };
@@ -206,100 +206,85 @@ export default function Dashboard() {
     hasPerm("order:manage") && { to: "/orders", icon: <ShoppingCartIcon />, label: "ออเดอร์", color: "primary" as const },
     hasPerm("product:manage") && { to: "/products", icon: <CategoryIcon />, label: "สินค้า", color: "secondary" as const },
     hasPerm("po:manage") && { to: "/po", icon: <ReceiptLongIcon />, label: "ใบสั่งซื้อ", color: "success" as const },
-    // ✅ เพิ่มควิกเมนู Suppliers
-    hasPerm("po:manage") && { to: "/suppliers", icon: <StoreIcon />, label: "ผู้ขาย (Suppliers)", color: "info" as const },
-    hasPerm("receiving:manage") && { to: "/receiving", icon: <WarehouseIcon />, label: "รับสินค้าเข้า", color: "warning" as const },
+    hasPerm("po:manage") && { to: "/suppliers", icon: <StoreIcon />, label: "ผู้ขาย", color: "info" as const },
+    hasPerm("receiving:manage") && { to: "/receiving", icon: <WarehouseIcon />, label: "รับของ", color: "warning" as const },
     hasPerm("user:manage") && { to: "/users", icon: <PeopleAltIcon />, label: "ผู้ใช้", color: "error" as const },
-    hasPerm("role:manage") && { to: "/roles", icon: <SecurityIcon />, label: "บทบาท/สิทธิ์", color: "default" as const },
-    hasPerm("issue:manage") && { to: "/issues", icon: <BugReportIcon />, label: "รายการปัญหา", color: "error" as const },
-    hasPerm("audit:manage") && { to: "/audit", icon: <ArticleIcon />, label: "Audit Logs", color: "primary" as const },
+    hasPerm("role:manage") && { to: "/roles", icon: <SecurityIcon />, label: "สิทธิ์", color: "default" as const },
+    hasPerm("issue:manage") && { to: "/issues", icon: <BugReportIcon />, label: "ปัญหา", color: "error" as const },
+    hasPerm("audit:manage") && { to: "/audit", icon: <ArticleIcon />, label: "Audit", color: "primary" as const },
   ].filter(Boolean) as {to: string; icon: JSX.Element; label: string; color: any}[];
 
   return (
     <Box
       p={{ xs: 2, md: 3 }}
       sx={{
-        background:
-          "radial-gradient(1200px 500px at -10% -10%, rgba(2,132,199,.08), transparent 60%), radial-gradient(900px 380px at 110% 10%, rgba(7,193,96,.08), transparent 60%)",
         borderRadius: 3
       }}
     >
       <Stack direction="row" alignItems="center" justifyContent="space-between" mb={2}>
         <Stack direction="row" spacing={1.5} alignItems="center">
-          <Typography variant="h5" fontWeight={900}>Dashboard</Typography>
-          <Chip size="small" label={mode} />
-          <Tooltip title="รีเฟรช (กดปุ่ม R ที่คีย์บอร์ดก็ได้)">
-            <IconButton onClick={load} size="small"><RefreshIcon /></IconButton>
+          <Typography variant="h5" fontWeight={900} color="primary.dark">Dashboard</Typography>
+          <Chip size="small" label={mode} color={mode === "PROD" ? "success" : "warning"} />
+          <Tooltip title="รีเฟรช">
+            <IconButton onClick={load} size="small" sx={{ bgcolor: 'white' }}><RefreshIcon /></IconButton>
           </Tooltip>
         </Stack>
         {leftSec != null && (
           <Stack direction="row" spacing={1} alignItems="center">
-            <Typography variant="caption" color="text.secondary">เซสชันจะหมดอายุใน</Typography>
-            <Chip size="small" color="warning" label={`${mm}:${ss}`} />
+            <Typography variant="caption" color="text.secondary">เซสชันหมดอายุใน</Typography>
+            <Chip size="small" color="error" label={`${mm}:${ss}`} variant="outlined" />
           </Stack>
         )}
       </Stack>
 
       <Greeting user={JSON.parse(localStorage.getItem("aw_user") || "{}")} />
 
-      {err && (
-        <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>
-      )}
+      {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
 
-      <Grid container spacing={2}>
+      <Grid container spacing={3}>
         <Grid item xs={12} md={8}>
           <Grid container spacing={2}>
-            {/* 4 Cards */}
-            <Grid item xs={6} md={3}>
-              <Paper variant="outlined" sx={{ p: 2 }}>
-                <Stack spacing={1}>
-                  <Stack direction="row" alignItems="center" justifyContent="space-between">
-                    <Typography variant="caption" color="text.secondary">ออเดอร์ทั้งหมด</Typography>
-                    <ReceiptLongIcon />
-                  </Stack>
-                  <Typography variant="h5" fontWeight={900}>{loading ? <Skeleton width={80}/> : kpi.total.toLocaleString()}</Typography>
-                </Stack>
-              </Paper>
-            </Grid>
-            <Grid item xs={6} md={3}>
-              <Paper variant="outlined" sx={{ p: 2 }}>
-                <Stack spacing={1}>
-                  <Stack direction="row" alignItems="center" justifyContent="space-between">
-                    <Typography variant="caption" color="text.secondary">รอตรวจ/แก้ไข</Typography>
-                    <WarningAmberIcon color="warning" />
-                  </Stack>
-                  <Typography variant="h5" fontWeight={900}>{loading ? <Skeleton width={80}/> : kpi.pending.toLocaleString()}</Typography>
-                </Stack>
-              </Paper>
-            </Grid>
-            <Grid item xs={6} md={3}>
-              <Paper variant="outlined" sx={{ p: 2 }}>
-                <Stack spacing={1}>
-                  <Stack direction="row" alignItems="center" justifyContent="space-between">
-                    <Typography variant="caption" color="text.secondary">กำลังจัดส่ง</Typography>
-                    <LocalShippingIcon color="info" />
-                  </Stack>
-                  <Typography variant="h5" fontWeight={900}>{loading ? <Skeleton width={80}/> : kpi.shipping.toLocaleString()}</Typography>
-                </Stack>
-              </Paper>
-            </Grid>
-            <Grid item xs={6} md={3}>
-              <Paper variant="outlined" sx={{ p: 2 }}>
-                <Stack spacing={1}>
-                  <Stack direction="row" alignItems="center" justifyContent="space-between">
-                    <Typography variant="caption" color="text.secondary">เสร็จสมบูรณ์</Typography>
-                    <TaskAltIcon color="success" />
-                  </Stack>
-                  <Typography variant="h5" fontWeight={900}>{loading ? <Skeleton width={80}/> : kpi.done.toLocaleString()}</Typography>
-                </Stack>
-              </Paper>
-            </Grid>
+            {/* KPI Cards */}
+            {[
+                { label: "ออเดอร์ทั้งหมด", icon: <ReceiptLongIcon />, val: kpi.total, color: "text.primary" },
+                { label: "รอตรวจ/แก้ไข", icon: <WarningAmberIcon sx={{color: '#FF8F00'}} />, val: kpi.pending, color: "#FF8F00" },
+                { label: "กำลังจัดส่ง", icon: <LocalShippingIcon color="info" />, val: kpi.shipping, color: "info.main" },
+                { label: "สำเร็จแล้ว", icon: <TaskAltIcon color="success" />, val: kpi.done, color: "success.main" }
+            ].map((k, i) => (
+                <Grid item xs={6} md={3} key={i}>
+                    <Paper 
+                        elevation={0}
+                        sx={{ 
+                            p: 2.5, 
+                            height: '100%', 
+                            bgcolor: 'white',
+                            border: '1px solid',
+                            borderColor: 'divider',
+                            transition: 'transform 0.2s',
+                            '&:hover': { transform: 'translateY(-4px)', borderColor: 'primary.main' }
+                        }}
+                    >
+                        <Stack spacing={1.5}>
+                            <Stack direction="row" alignItems="center" justifyContent="space-between">
+                                <Typography variant="caption" color="text.secondary" fontWeight={600}>{k.label}</Typography>
+                                {k.icon}
+                            </Stack>
+                            <Typography variant="h4" fontWeight={800} sx={{ color: k.color }}>
+                                {loading ? <Skeleton width={60} /> : k.val.toLocaleString()}
+                            </Typography>
+                        </Stack>
+                    </Paper>
+                </Grid>
+            ))}
 
             {/* Chart */}
             <Grid item xs={12}>
-              <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, height: 350 }}>
-                <Typography variant="h6" fontWeight={800} mb={2}>📈 แนวโน้มรายได้ (7 วันล่าสุด)</Typography>
-                <Box height={260}>
+              <Paper elevation={0} sx={{ p: 3, borderRadius: 4, height: 380, bgcolor: 'white', border: '1px solid', borderColor: 'divider' }}>
+                <Stack direction="row" justifyContent="space-between" mb={3}>
+                    <Typography variant="h6" fontWeight={800}>📈 ยอดขาย 7 วันล่าสุด</Typography>
+                    <Chip label={`รวม ฿${kpi.revenue.toLocaleString()}`} color="primary" sx={{ fontWeight: 800 }} />
+                </Stack>
+                <Box height={280}>
                   {loading ? (
                     <Skeleton variant="rectangular" height="100%" />
                   ) : (
@@ -307,18 +292,18 @@ export default function Dashboard() {
                       <AreaChart data={series}>
                         <defs>
                           <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#07c160" stopOpacity={0.8}/>
-                            <stop offset="95%" stopColor="#07c160" stopOpacity={0}/>
+                            <stop offset="5%" stopColor="#FFB300" stopOpacity={0.8}/>
+                            <stop offset="95%" stopColor="#FFB300" stopOpacity={0}/>
                           </linearGradient>
                         </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                        <XAxis dataKey="label" tick={{fontSize: 12}} />
-                        <YAxis tick={{fontSize: 12}} />
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.3} />
+                        <XAxis dataKey="label" tick={{fontSize: 12}} axisLine={false} tickLine={false} />
+                        <YAxis tick={{fontSize: 12}} axisLine={false} tickLine={false} />
                         <RechartsTooltip 
-                            contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                            formatter={(value:number) => [`฿${value.toLocaleString()}`, 'รายได้']}
+                            contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 8px 24px rgba(0,0,0,0.1)' }}
+                            formatter={(value:number) => [`฿${value.toLocaleString()}`, 'ยอดขาย']}
                         />
-                        <Area type="monotone" dataKey="value" stroke="#07c160" fillOpacity={1} fill="url(#colorValue)" strokeWidth={3} />
+                        <Area type="monotone" dataKey="value" stroke="#FFB300" strokeWidth={4} fillOpacity={1} fill="url(#colorValue)" />
                       </AreaChart>
                     </ResponsiveContainer>
                   )}
@@ -328,104 +313,93 @@ export default function Dashboard() {
           </Grid>
         </Grid>
 
-        {/* Right Side */}
+        {/* Right Sidebar */}
         <Grid item xs={12} md={4}>
-          <Paper variant="outlined" sx={{ p: 2, height: "100%" }}>
-            <Stack direction="row" spacing={1} alignItems="center" mb={1}>
-              <WarningAmberIcon color="warning" />
-              <Typography fontWeight={800}>รายการที่ต้องสนใจ</Typography>
-            </Stack>
-            {loading ? (
-              <Stack spacing={1}><Skeleton height={24}/><Skeleton height={24}/><Skeleton height={24}/></Stack>
-            ) : (
-              <Stack spacing={1}>
-                <Chip size="small" variant="outlined" color="warning" label={`รอชำระจะหมดเวลา (≤10 นาที): ${attention.expSoon.length}`} />
-                <Chip size="small" variant="outlined" color="error" label={`สลิปผิดปกติ (≥2 ครั้ง): ${attention.slipWarn.length}`} />
-                <Chip size="small" variant="outlined" color="info" label={`กำลังส่งแต่ไม่มีเลขพัสดุ: ${attention.shipNoTn.length}`} />
-                <Chip size="small" variant="outlined" label={`สลิปไม่ผ่าน: ${attention.rejected.length}`} />
-              </Stack>
-            )}
-            <Divider sx={{ my: 1.5 }} />
-            <Stack direction="row" spacing={1} alignItems="center" mb={1}>
-              <StackedLineChartIcon />
-              <Typography fontWeight={800}>ควิกเมนู</Typography>
-            </Stack>
-            <Grid container spacing={1}>
-              {menuShortcuts.map(m => (
-                <Grid item xs={6} key={m.to}>
-                  <Button
-                    component={Link}
-                    to={m.to}
-                    fullWidth
-                    variant="outlined"
-                    sx={{
-                      justifyContent: "flex-start",
-                      borderColor: (t)=>alpha(t.palette[m.color]?.main || t.palette.divider, .4)
-                    }}
-                    startIcon={m.icon}
-                  >
-                    {m.label}
-                  </Button>
-                </Grid>
-              ))}
-            </Grid>
-          </Paper>
-        </Grid>
+          <Stack spacing={3}>
+            {/* Action Required */}
+            <Paper elevation={0} sx={{ p: 2, bgcolor: '#FFF8E1', border: '1px solid #FFE082' }}>
+                <Stack direction="row" spacing={1} alignItems="center" mb={2}>
+                    <WarningAmberIcon sx={{ color: '#FF8F00' }} />
+                    <Typography fontWeight={800} color="#FF8F00">ต้องดูแลด่วน</Typography>
+                </Stack>
+                {loading ? <Skeleton height={100}/> : (
+                    <Stack spacing={1}>
+                        <Chip 
+                            size="small" 
+                            label={`รอชำระใกล้หมดเวลา: ${attention.expSoon.length}`} 
+                            sx={{ bgcolor: 'white', fontWeight: 600, justifyContent: 'flex-start' }} 
+                            icon={attention.expSoon.length > 0 ? <WarningAmberIcon fontSize="small"/> : undefined}
+                        />
+                        <Chip 
+                            size="small" 
+                            label={`สลิปมีปัญหา: ${attention.slipWarn.length}`} 
+                            sx={{ bgcolor: 'white', fontWeight: 600, justifyContent: 'flex-start' }} 
+                        />
+                         <Chip 
+                            size="small" 
+                            label={`ไม่มีเลขพัสดุ: ${attention.shipNoTn.length}`} 
+                            sx={{ bgcolor: 'white', fontWeight: 600, justifyContent: 'flex-start' }} 
+                        />
+                    </Stack>
+                )}
+            </Paper>
 
-        {/* Recent orders */}
-        <Grid item xs={12} md={8}>
-          <Paper variant="outlined" sx={{ p: 2 }}>
-            <Stack direction="row" spacing={1.25} alignItems="center" mb={1}>
-              <ReceiptLongIcon />
-              <Typography fontWeight={800}>ออเดอร์ล่าสุด</Typography>
-            </Stack>
-            {loading ? (
-              <Stack spacing={1}><Skeleton height={46}/><Skeleton height={46}/><Skeleton height={46}/></Stack>
-            ) : (
-              <List dense>
-                {kpi.latest.map(o => (
-                  <ListItem
-                    key={o._id}
-                    secondaryAction={
-                      <Button component={Link} to={`/orders?tab=all`} size="small" endIcon={<ArrowForwardIcon />}>รายละเอียด</Button>
-                    }
-                  >
-                    <ListItemIcon><ShoppingCartIcon /></ListItemIcon>
-                    <ListItemText
-                      primary={<Stack direction="row" spacing={1} alignItems="center">
-                        <Typography fontWeight={800}>{o.orderNo}</Typography>
-                        <Chip size="small" label={o.paymentStatus} />
-                        <Chip size="small" label={o.orderStatus} />
-                      </Stack>}
-                      secondary={<Typography variant="caption" color="text.secondary">
-                        {o.customerName} • {new Date(o.createdAt).toLocaleString("th-TH")} • ยอด {o.totalAmount.toLocaleString("th-TH")} บาท
-                      </Typography>}
-                    />
-                  </ListItem>
+            {/* Quick Menu */}
+            <Paper elevation={0} sx={{ p: 2.5, border: '1px solid', borderColor: 'divider' }}>
+                <Typography fontWeight={800} mb={2}>🚀 เมนูด่วน</Typography>
+                <Grid container spacing={1}>
+                {menuShortcuts.map(m => (
+                    <Grid item xs={6} key={m.to}>
+                    <Button
+                        component={Link}
+                        to={m.to}
+                        fullWidth
+                        variant="outlined"
+                        sx={{
+                            justifyContent: "flex-start",
+                            color: 'text.primary',
+                            borderColor: 'divider',
+                            '&:hover': { borderColor: 'primary.main', bgcolor: alpha('#FFB300', 0.1) }
+                        }}
+                        startIcon={m.icon}
+                    >
+                        {m.label}
+                    </Button>
+                    </Grid>
                 ))}
-                {!kpi.latest.length && <Typography color="text.secondary">ไม่มีข้อมูล</Typography>}
-              </List>
-            )}
-          </Paper>
-        </Grid>
+                </Grid>
+            </Paper>
 
-        {/* Inventory / quick links */}
-        <Grid item xs={12} md={4}>
-          <Paper variant="outlined" sx={{ p: 2, height: "100%" }}>
-            <Stack direction="row" spacing={1.25} alignItems="center" mb={1}>
-              <Inventory2Icon />
-              <Typography fontWeight={800}>สต็อก / จัดซื้อ</Typography>
-            </Stack>
-            <Stack spacing={1}>
-              <Button component={Link} to="/products" fullWidth variant="outlined" startIcon={<CategoryIcon />}>จัดการสินค้า</Button>
-              <Button component={Link} to="/po" fullWidth variant="outlined" startIcon={<AddBoxIcon />}>สร้างใบสั่งซื้อ</Button>
-              <Button component={Link} to="/receiving" fullWidth variant="outlined" startIcon={<MoveDownIcon />}>รับสินค้าเข้า</Button>
-            </Stack>
-          </Paper>
+            {/* Recent Orders List */}
+            <Paper elevation={0} sx={{ p: 0, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
+                <Box p={2} bgcolor="#FAFAFA" borderBottom="1px solid #EEE">
+                    <Typography fontWeight={800}>🛒 ออเดอร์ล่าสุด</Typography>
+                </Box>
+                <List dense sx={{ maxHeight: 300, overflow: 'auto' }}>
+                    {loading ? <Box p={2}><Skeleton count={3}/></Box> : kpi.latest.map(o => (
+                        <ListItem
+                            key={o._id}
+                            button
+                            component={Link}
+                            to={`/orders/${o._id}`}
+                            divider
+                        >
+                            <ListItemText
+                                primary={<Stack direction="row" spacing={1} alignItems="center">
+                                    <Typography fontWeight={700} fontSize="0.9rem">{o.orderNo}</Typography>
+                                    <Chip size="small" label={o.orderStatus} sx={{ height: 20, fontSize: '0.65rem' }} />
+                                </Stack>}
+                                secondary={`${o.customerName} • ฿${o.totalAmount.toLocaleString()}`}
+                            />
+                            <ArrowForwardIcon fontSize="small" color="action" />
+                        </ListItem>
+                    ))}
+                    {!loading && kpi.latest.length === 0 && <Box p={2} textAlign="center">ไม่มีข้อมูล</Box>}
+                </List>
+            </Paper>
+          </Stack>
         </Grid>
       </Grid>
-
-      {loading && <LinearProgress sx={{ mt: 2 }} />}
     </Box>
   );
 }

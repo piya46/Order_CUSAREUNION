@@ -2,6 +2,8 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import Protected from './components/Protected';
+
+// Pages
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import OrdersList from './pages/Orders/OrdersList';
@@ -14,14 +16,17 @@ import ReceivingList from './pages/Receivings/ReceivingList';
 import Issues from './pages/Issues/Issues';
 import AuditLogs from './pages/Audit/AuditLogs';
 import Inventory from './pages/Inventory';
-// ✅ Import หน้า Suppliers (อย่าลืมสร้างไฟล์ตามที่คุยกันก่อนหน้านี้นะครับ)
 import SupplierList from './pages/Suppliers/SupplierList';
+import Forbidden from './pages/Forbidden';
 
 export default function App() {
   return (
     <Routes>
+      {/* Public Routes */}
       <Route path="/login" element={<Login />} />
+      <Route path="/403" element={<Forbidden />} />
 
+      {/* Protected Routes (Require Login) */}
       <Route
         path="/"
         element={
@@ -30,10 +35,12 @@ export default function App() {
           </Protected>
         }
       />
+
+      {/* --- Order Management --- */}
       <Route
         path="/orders"
         element={
-          <Protected roles={['admin','manager','account','shipping']}>
+          <Protected permissions={['order:manage']}>
             <Layout><OrdersList /></Layout>
           </Protected>
         }
@@ -41,23 +48,61 @@ export default function App() {
       <Route
         path="/orders/:id"
         element={
-          <Protected roles={['admin','manager','account','shipping']}>
+          <Protected permissions={['order:manage']}>
             <Layout><OrderDetail /></Layout>
           </Protected>
         }
       />
+
+      {/* --- Product & Inventory --- */}
       <Route
         path="/products"
         element={
-          <Protected roles={['admin','manager']}>
+          <Protected permissions={['product:manage']}>
             <Layout><Products /></Layout>
           </Protected>
         }
       />
       <Route
+        path="/inventory"
+        element={
+          <Protected permissions={['product:manage']}>
+            <Layout><Inventory /></Layout>
+          </Protected>
+        }
+      />
+
+      {/* --- Purchasing & Suppliers (Supply Chain) --- */}
+      <Route
+        path="/po"
+        element={
+          <Protected permissions={['po:manage']}>
+            <Layout><POList /></Layout>
+          </Protected>
+        }
+      />
+      <Route
+        path="/suppliers"
+        element={
+          <Protected permissions={['po:manage']}>
+            <Layout><SupplierList /></Layout>
+          </Protected>
+        }
+      />
+      <Route
+        path="/receiving"
+        element={
+          <Protected permissions={['receiving:manage']}>
+            <Layout><ReceivingList /></Layout>
+          </Protected>
+        }
+      />
+
+      {/* --- Admin System --- */}
+      <Route
         path="/users"
         element={
-          <Protected roles={['admin']}>
+          <Protected permissions={['user:manage']}>
             <Layout><Users /></Layout>
           </Protected>
         }
@@ -65,61 +110,31 @@ export default function App() {
       <Route
         path="/roles"
         element={
-          <Protected roles={['admin']}>
+          <Protected permissions={['role:manage']}>
             <Layout><Roles /></Layout>
-          </Protected>
-        }
-      />
-      <Route
-        path="/po"
-        element={
-          <Protected roles={['purchasing','admin','manager']}>
-            <Layout><POList /></Layout>
-          </Protected>
-        }
-      />
-      <Route
-        path="/receiving"
-        element={
-          <Protected roles={['purchasing','admin','manager']}>
-            <Layout><ReceivingList /></Layout>
-          </Protected>
-        }
-      />
-      {/* ✅ เพิ่ม Route สำหรับ Suppliers */}
-      <Route
-        path="/suppliers"
-        element={
-          <Protected roles={['purchasing','admin','manager']}>
-            <Layout><SupplierList /></Layout>
-          </Protected>
-        }
-      />
-      <Route
-        path="/issues"
-        element={
-          <Protected roles={['admin','manager','account','shipping','purchasing']}>
-            <Layout><Issues /></Layout>
           </Protected>
         }
       />
       <Route
         path="/audit"
         element={
-          <Protected roles={['admin','manager']}>
+          <Protected permissions={['audit:manage']}>
             <Layout><AuditLogs /></Layout>
           </Protected>
         }
       />
+
+      {/* --- Support --- */}
       <Route
-        path="/inventory"
+        path="/issues"
         element={
-          <Protected roles={['admin','manager']}>
-            <Layout><Inventory /></Layout>
+          <Protected permissions={['issue:manage']}>
+            <Layout><Issues /></Layout>
           </Protected>
         }
       />
 
+      {/* Fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
