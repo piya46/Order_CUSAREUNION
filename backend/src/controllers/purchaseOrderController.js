@@ -86,7 +86,11 @@ exports.delete = async (req, res, next) => {
 
 exports.exportPO = async (req, res, next) => {
   try {
-    const po = await PurchaseOrder.findById(req.params.id).populate('items.product');
+
+    const po = await PurchaseOrder.findById(req.params.id)
+      .populate('items.product')
+      .populate('supplier'); 
+
     if (!po) return res.status(404).json({ error: 'PO not found' });
 
     await auditLogService.log({

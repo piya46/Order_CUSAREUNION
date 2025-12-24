@@ -8,12 +8,12 @@ const fs = require('fs');
 // ==========================================
 const COMPANY_INFO = {
   name: "สมาคมนิสิตเก่าวิทยาศาสตร์ จุฬาลงกรณ์มหาวิทยาลัย",
-  nameEn: "Science Alumni Association, Chulalongkorn University", // ใส่ชื่อภาษาอังกฤษ (ถ้ามี) เพื่อความสวยงาม
+  nameEn: "Science Alumni Association, Chulalongkorn University", 
   address: "254 ถ.พญาไท แขวงวังใหม่ เขตปทุมวัน กรุงเทพฯ 10330",
   taxId: "-", 
   phone: "-",
   email: "-",
-  logo: "logo_placeholder.png" // ตรวจสอบว่ามีไฟล์นี้ในโฟลเดอร์ public/uploads/
+  logo: "logo_placeholder.png" 
 };
 
 // ==========================================
@@ -87,7 +87,7 @@ exports.exportPOtoPDF = (po, res) => {
     setFont(doc, 14);
     doc.text('PURCHASE ORDER', 0, 65, { align: 'right' });
 
-    // PO Info Box (กรอบขวาบน)
+    // PO Info Box
     const boxTop = 85;
     const boxLeft = 380;
     const boxWidth = 175;
@@ -104,19 +104,23 @@ exports.exportPOtoPDF = (po, res) => {
     setFont(doc, 12);
     doc.text(formatDate(po.orderDate), boxLeft + 80, boxTop + 38, { align: 'right', width: boxWidth - 90 });
 
-    // --- 2. Vendor Section (แก้ไขใหม่) ---
+    // --- 2. Vendor Section (ปรับปรุงใหม่) ---
     doc.moveDown();
     const vendorY = 155;
     
-    // Background Header Bar
     doc.fillColor('#f0f0f0').rect(40, vendorY, 515, 20).fill();
     doc.fillColor('#000');
 
     setFont(doc, 12, true);
     doc.text('ข้อมูลผู้จำหน่าย (VENDOR / SUPPLIER)', 45, vendorY + 4);
 
-    // เตรียมตัวแปรข้อมูลผู้ขาย (ดึงจาก po.supplier)
-    const supplier = po.supplier || {};
+    // 🔴 แก้ไขการดึงข้อมูล: ตรวจสอบว่าเป็น Object จริงไหม
+    let supplier = {};
+    if (po.supplier && typeof po.supplier === 'object') {
+        supplier = po.supplier;
+    }
+
+    // ดึงค่ามาใส่ตัวแปร (Fallback)
     const supName = supplier.name || po.supplierName || '-';
     const supAddress = supplier.address || '-';
     const supContact = supplier.contactPerson || po.supplierContact || '-';
@@ -125,7 +129,7 @@ exports.exportPOtoPDF = (po, res) => {
 
     const vendorInfoY = vendorY + 28;
 
-    // คอลัมน์ซ้าย: ชื่อ ที่อยู่ เลขภาษี
+    // คอลัมน์ซ้าย
     setFont(doc, 12);
     doc.text('ชื่อผู้ขาย:', 45, vendorInfoY);
     setFont(doc, 13, true); 
@@ -134,13 +138,17 @@ exports.exportPOtoPDF = (po, res) => {
     setFont(doc, 12);
     doc.text('ที่อยู่:', 45, vendorInfoY + 18);
     setFont(doc, 12); 
-    doc.text(supAddress, 100, vendorInfoY + 18, { width: 220 }); // จำกัดความกว้างไม่ให้ล้น
+    // ใช้ width เพื่อให้ตัดคำถ้ายาวเกิน
+    doc.text(supAddress, 100, vendorInfoY + 18, { width: 220 }); 
 
-    const nextLineY = vendorInfoY + 18 + (doc.heightOfString(supAddress, { width: 220 }) || 15);
+    // คำนวณความสูงที่ใช้ไปของที่อยู่ เพื่อขยับบรรทัดถัดไป
+    const addrHeight = doc.heightOfString(supAddress, { width: 220 });
+    const nextLineY = vendorInfoY + 18 + (addrHeight > 15 ? addrHeight : 15);
+    
     doc.text('เลขภาษี:', 45, nextLineY + 5);
     doc.text(supTaxId, 100, nextLineY + 5);
 
-    // คอลัมน์ขวา: ผู้ติดต่อ เบอร์โทร หมายเหตุ
+    // คอลัมน์ขวา
     const rightColX = 340;
     doc.text('ผู้ติดต่อ:', rightColX, vendorInfoY);
     doc.text(supContact, rightColX + 50, vendorInfoY);
@@ -152,11 +160,13 @@ exports.exportPOtoPDF = (po, res) => {
     doc.text(po.note || '-', rightColX + 50, vendorInfoY + 36, { width: 150 });
 
     // --- 3. Table Section ---
-    let y = vendorInfoY + 80; // ขยับลงมาจากส่วน Vendor พอสมควร
+    let y = vendorInfoY + 80;
+    // ถ้าที่อยู่ยาวมาก ให้ดันตารางลงไปอีก
+    if (addrHeight > 40) y += 20;
+
     const col = { no: 40, product: 80, spec: 240, qty: 360, price: 420, total: 490 };
     const colW = { no: 30, product: 150, spec: 110, qty: 50, price: 60, total: 65 };
 
-    // Table Header (สีน้ำเงินเข้ม)
     doc.fillColor('#2c3e50').rect(40, y, 515, 25).fill();
     doc.fillColor('#fff'); 
 
@@ -177,13 +187,8 @@ exports.exportPOtoPDF = (po, res) => {
 
     if (po.items && po.items.length > 0) {
       po.items.forEach((item, index) => {
-        // ขึ้นหน้าใหม่ถ้าพื้นที่ไม่พอ
-        if (y > 700) {
-          doc.addPage();
-          y = 40;
-        }
+        if (y > 700) { doc.addPage(); y = 40; }
 
-        // Zebra Striping (สีสลับบรรทัด)
         if (index % 2 === 0) {
           doc.fillColor('#f9f9f9').rect(40, y, 515, 20).fill();
           doc.fillColor('#000');
@@ -205,13 +210,10 @@ exports.exportPOtoPDF = (po, res) => {
       });
     }
 
-    // เส้นปิดท้ายตาราง
     doc.moveTo(40, y).lineTo(555, y).strokeColor('#ccc').stroke();
 
-    // --- 4. Footer Summary ---
+    // --- 4. Summary ---
     y += 10;
-    
-    // ตีกรอบส่วนยอดรวม
     const summaryBoxX = 350;
     const summaryBoxY = y;
     doc.fillColor('#f9f9f9').roundedRect(summaryBoxX, summaryBoxY, 205, 35, 3).fill();
@@ -219,7 +221,6 @@ exports.exportPOtoPDF = (po, res) => {
 
     setFont(doc, 12, true);
     doc.text('ยอดรวมสุทธิ (Grand Total):', summaryBoxX + 10, summaryBoxY + 10);
-    
     setFont(doc, 16, true);
     doc.text(formatCurrency(po.totalAmount), summaryBoxX + 10, summaryBoxY + 8, { width: 185, align: 'right' });
 
@@ -232,13 +233,10 @@ exports.exportPOtoPDF = (po, res) => {
     const rightSignX = 340;
 
     setFont(doc, 11);
-    
-    // Left Signature
     doc.text('_____________________________', leftSignX, signY, { align: 'center', width: boxW });
     doc.text('ผู้จัดทำ (Prepared By)', leftSignX, signY + 15, { align: 'center', width: boxW });
     doc.text(`วันที่: ${formatDate(new Date())}`, leftSignX, signY + 30, { align: 'center', width: boxW });
 
-    // Right Signature
     doc.text('_____________________________', rightSignX, signY, { align: 'center', width: boxW });
     doc.text('ผู้อนุมัติ (Approved By)', rightSignX, signY + 15, { align: 'center', width: boxW });
     doc.text('วันที่: ______/______/______', rightSignX, signY + 30, { align: 'center', width: boxW });
@@ -273,7 +271,6 @@ exports.exportReceivingToPDF = (receiving, res) => {
       setFont(doc, 10);
       doc.text('ใบรับสินค้าเข้าคลัง (RECEIVING REPORT)', hX, 60);
   
-      // Info Box (สีเทาอ่อน)
       const boxTop = 90;
       doc.fillColor('#f5f5f5').roundedRect(40, boxTop, 515, 60, 5).fill();
       doc.fillColor('#000');
@@ -281,11 +278,9 @@ exports.exportReceivingToPDF = (receiving, res) => {
       setFont(doc, 12);
       doc.text(`เลขที่เอกสาร: ${receiving.receivingNumber}`, 50, boxTop + 10);
       doc.text(`อ้างอิง PO: ${receiving.po ? receiving.po.poNumber : '-'}`, 50, boxTop + 30);
-      
       doc.text(`ผู้รับของ: ${receiving.receiverName}`, 300, boxTop + 10);
       doc.text(`วันที่รับ: ${formatDate(receiving.receiveDate)}`, 300, boxTop + 30);
   
-      // Table Header (Green)
       let y = 170;
       doc.fillColor('#27ae60').rect(40, y, 515, 25).fill();
       doc.fillColor('#fff');
@@ -316,7 +311,6 @@ exports.exportReceivingToPDF = (receiving, res) => {
           });
       }
   
-      // Signature
       const signY = y + 50 > 700 ? 700 : y + 50;
       if (signY === 700 && y > 650) doc.addPage();
       
@@ -339,8 +333,11 @@ exports.exportPOtoExcel = async (po, res) => {
 
     const borderStyle = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
 
-    // เตรียมข้อมูลผู้ขายสำหรับ Excel (เหมือนใน PDF)
-    const supplier = po.supplier || {};
+    // 🔴 แก้ไข: ตรวจสอบ object supplier
+    let supplier = {};
+    if (po.supplier && typeof po.supplier === 'object') {
+        supplier = po.supplier;
+    }
     const supName = supplier.name || po.supplierName || '-';
     const supContact = supplier.contactPerson || po.supplierContact || '-';
 
@@ -352,8 +349,8 @@ exports.exportPOtoExcel = async (po, res) => {
 
     ws.addRow(['ใบสั่งซื้อ / PURCHASE ORDER']).font = { bold: true, size: 12 };
     ws.addRow(['PO Number', po.poNumber]);
-    ws.addRow(['Vendor', supName]);      // แก้ไข: ใช้ตัวแปรที่ดึงจาก supplier object
-    ws.addRow(['Contact', supContact]);  // แก้ไข: ใช้ตัวแปรที่ดึงจาก supplier object
+    ws.addRow(['Vendor', supName]);      
+    ws.addRow(['Contact', supContact]); 
     ws.addRow(['Date', formatDate(po.orderDate)]);
     ws.addRow(['Status', po.status]);
     ws.addRow([]); 

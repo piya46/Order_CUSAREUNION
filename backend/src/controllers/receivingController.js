@@ -204,24 +204,22 @@ exports.getAll = async (req, res, next) => {
     } catch (err) { next(err); }
   };
   
-  exports.exportReceiving = async (req, res, next) => {
-    try {
-      const receiving = await Receiving.findById(req.params.id).populate('items.product');
-      if (!receiving) return res.status(404).json({ error: 'Receiving not found' });
-  
-      await auditLogService.log({
-        user: req.user?.id,
-        action: 'RECEIVING_EXPORT',
-        detail: { receivingId: receiving._id, type: req.query.type || 'unknown' },
-        ip: req.ip
-      });
-  
-      if (req.query.type === 'pdf') {
-        exportService.exportReceivingToPDF(receiving, res);
-      } else if (req.query.type === 'excel') {
-        await exportService.exportReceivingToExcel(receiving, res);
-      } else {
-        res.status(400).json({ error: 'Unknown export type' });
-      }
-    } catch (err) { next(err); }
-  };
+exports.exportReceiving = async (req, res, next) => {
+  try {
+    // ✅ แบบที่ถูกต้อง (ต้องเพิ่ม populate 'po')
+    const receiving = await Receiving.findById(req.params.id)
+      .populate('items.product')
+      .populate('po'); // <--- เพิ่มบรรทัดนี้ครับ หัวใจสำคัญ!
+
+    if (!receiving) return res.status(404).json({ error: 'Receiving not found' });
+
+    // ... (ส่วน log และเรียก service export) ...
+    
+    if (req.query.type === 'pdf') {
+      exportService.exportReceivingToPDF(receiving, res);
+    } else {
+      await exportService.exportReceivingToExcel(receiving, res);
+    }
+
+  } catch (err) { next(err); }
+};
