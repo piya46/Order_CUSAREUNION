@@ -8,18 +8,17 @@ const fs = require('fs');
 // ==========================================
 const COMPANY_INFO = {
   name: "สมาคมนิสิตเก่าวิทยาศาสตร์ จุฬาลงกรณ์มหาวิทยาลัย",
-  nameEn: "-",
+  nameEn: "Science Alumni Association, Chulalongkorn University", // ใส่ชื่อภาษาอังกฤษ (ถ้ามี) เพื่อความสวยงาม
   address: "254 ถ.พญาไท แขวงวังใหม่ เขตปทุมวัน กรุงเทพฯ 10330",
-  taxId: "-",
+  taxId: "-", 
   phone: "-",
   email: "-",
-  logo: "logo_placeholder.png" // ต้องมีไฟล์นี้ใน backend/public/uploads/ หรือใส่ path รูปที่มีจริง
+  logo: "logo_placeholder.png" // ตรวจสอบว่ามีไฟล์นี้ในโฟลเดอร์ public/uploads/
 };
 
 // ==========================================
 // 🔧 HELPERS
 // ==========================================
-// เช็คฟอนต์ภาษาไทย (สำคัญมากต้องมีไฟล์ THSarabunNew.ttf)
 const fontPath = path.join(__dirname, '../fonts/THSarabunNew.ttf');
 const boldFontPath = path.join(__dirname, '../fonts/THSarabunNew Bold.ttf');
 const hasThaiFont = fs.existsSync(fontPath);
@@ -63,37 +62,36 @@ exports.exportPOtoPDF = (po, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="PO_${po.poNumber}.pdf"`);
     doc.pipe(res);
 
-    // --- Header ---
+    // --- 1. Header Section ---
     const logoPath = path.join(__dirname, `../public/uploads/${COMPANY_INFO.logo}`);
-    // เช็คว่ามีรูปหรือไม่ก่อนโหลด
     if (fs.existsSync(logoPath)) {
       doc.image(logoPath, 40, 40, { width: 60 });
     }
 
     const headerLeftX = fs.existsSync(logoPath) ? 110 : 40;
     
-    // Company Info
+    // Company Name
     setFont(doc, 18, true);
     doc.text(COMPANY_INFO.name, headerLeftX, 40);
     
+    // Company Details
     setFont(doc, 10);
     doc.text(COMPANY_INFO.nameEn, headerLeftX, 58);
     doc.text(COMPANY_INFO.address, headerLeftX, 70);
-    doc.text(`Tax ID: ${COMPANY_INFO.taxId}`, headerLeftX, 82);
-    doc.text(`Tel: ${COMPANY_INFO.phone} | Email: ${COMPANY_INFO.email}`, headerLeftX, 94);
+    doc.text(`เลขประจำตัวผู้เสียภาษี: ${COMPANY_INFO.taxId}`, headerLeftX, 82);
+    doc.text(`โทร: ${COMPANY_INFO.phone} | อีเมล: ${COMPANY_INFO.email}`, headerLeftX, 94);
 
     // Document Title (Right Side)
-    setFont(doc, 24, true);
+    setFont(doc, 26, true);
     doc.text('ใบสั่งซื้อ', 0, 40, { align: 'right' });
     setFont(doc, 14);
     doc.text('PURCHASE ORDER', 0, 65, { align: 'right' });
 
-    // PO Info Box
+    // PO Info Box (กรอบขวาบน)
     const boxTop = 85;
     const boxLeft = 380;
     const boxWidth = 175;
     
-    // วาดกรอบสี่เหลี่ยมโค้งมน
     doc.roundedRect(boxLeft, boxTop, boxWidth, 55, 5).strokeColor('#333').stroke();
     
     setFont(doc, 11, true);
@@ -106,37 +104,59 @@ exports.exportPOtoPDF = (po, res) => {
     setFont(doc, 12);
     doc.text(formatDate(po.orderDate), boxLeft + 80, boxTop + 38, { align: 'right', width: boxWidth - 90 });
 
-    // --- Vendor Section ---
+    // --- 2. Vendor Section (แก้ไขใหม่) ---
     doc.moveDown();
-    const vendorY = 150;
+    const vendorY = 155;
     
-    // แถบหัวข้อ
-    doc.fillColor('#eee').rect(40, vendorY, 515, 20).fill();
+    // Background Header Bar
+    doc.fillColor('#f0f0f0').rect(40, vendorY, 515, 20).fill();
     doc.fillColor('#000');
 
     setFont(doc, 12, true);
-    doc.text('ผู้จำหน่าย (VENDOR / SUPPLIER)', 45, vendorY + 4);
+    doc.text('ข้อมูลผู้จำหน่าย (VENDOR / SUPPLIER)', 45, vendorY + 4);
 
-    // ข้อมูลผู้ขาย
-    const vendorInfoY = vendorY + 25;
+    // เตรียมตัวแปรข้อมูลผู้ขาย (ดึงจาก po.supplier)
+    const supplier = po.supplier || {};
+    const supName = supplier.name || po.supplierName || '-';
+    const supAddress = supplier.address || '-';
+    const supContact = supplier.contactPerson || po.supplierContact || '-';
+    const supPhone = supplier.phone || '-';
+    const supTaxId = supplier.taxId || '-';
+
+    const vendorInfoY = vendorY + 28;
+
+    // คอลัมน์ซ้าย: ชื่อ ที่อยู่ เลขภาษี
     setFont(doc, 12);
     doc.text('ชื่อผู้ขาย:', 45, vendorInfoY);
-    setFont(doc, 14, true); 
-    doc.text(po.supplierName || '-', 100, vendorInfoY - 2); 
+    setFont(doc, 13, true); 
+    doc.text(supName, 100, vendorInfoY - 1); 
 
     setFont(doc, 12);
-    doc.text('ผู้ติดต่อ:', 45, vendorInfoY + 20);
-    doc.text(po.supplierContact || '-', 100, vendorInfoY + 20);
+    doc.text('ที่อยู่:', 45, vendorInfoY + 18);
+    setFont(doc, 12); 
+    doc.text(supAddress, 100, vendorInfoY + 18, { width: 220 }); // จำกัดความกว้างไม่ให้ล้น
 
-    doc.text('หมายเหตุ:', 300, vendorInfoY);
-    doc.text(po.note || '-', 350, vendorInfoY, { width: 200 });
+    const nextLineY = vendorInfoY + 18 + (doc.heightOfString(supAddress, { width: 220 }) || 15);
+    doc.text('เลขภาษี:', 45, nextLineY + 5);
+    doc.text(supTaxId, 100, nextLineY + 5);
 
-    // --- Table Header ---
-    let y = 220;
-    const col = { no: 40, product: 80, spec: 230, qty: 350, price: 410, total: 480 };
-    const colW = { no: 30, product: 140, spec: 110, qty: 50, price: 60, total: 75 };
+    // คอลัมน์ขวา: ผู้ติดต่อ เบอร์โทร หมายเหตุ
+    const rightColX = 340;
+    doc.text('ผู้ติดต่อ:', rightColX, vendorInfoY);
+    doc.text(supContact, rightColX + 50, vendorInfoY);
 
-    // Header Background (Navy Blue)
+    doc.text('เบอร์โทร:', rightColX, vendorInfoY + 18);
+    doc.text(supPhone, rightColX + 50, vendorInfoY + 18);
+
+    doc.text('หมายเหตุ:', rightColX, vendorInfoY + 36);
+    doc.text(po.note || '-', rightColX + 50, vendorInfoY + 36, { width: 150 });
+
+    // --- 3. Table Section ---
+    let y = vendorInfoY + 80; // ขยับลงมาจากส่วน Vendor พอสมควร
+    const col = { no: 40, product: 80, spec: 240, qty: 360, price: 420, total: 490 };
+    const colW = { no: 30, product: 150, spec: 110, qty: 50, price: 60, total: 65 };
+
+    // Table Header (สีน้ำเงินเข้ม)
     doc.fillColor('#2c3e50').rect(40, y, 515, 25).fill();
     doc.fillColor('#fff'); 
 
@@ -152,7 +172,7 @@ exports.exportPOtoPDF = (po, res) => {
     doc.fillColor('#000');
     y += 25;
 
-    // --- Table Items ---
+    // Table Items
     setFont(doc, 11);
 
     if (po.items && po.items.length > 0) {
@@ -163,7 +183,7 @@ exports.exportPOtoPDF = (po, res) => {
           y = 40;
         }
 
-        // Zebra Striping
+        // Zebra Striping (สีสลับบรรทัด)
         if (index % 2 === 0) {
           doc.fillColor('#f9f9f9').rect(40, y, 515, 20).fill();
           doc.fillColor('#000');
@@ -188,31 +208,31 @@ exports.exportPOtoPDF = (po, res) => {
     // เส้นปิดท้ายตาราง
     doc.moveTo(40, y).lineTo(555, y).strokeColor('#ccc').stroke();
 
-    // --- Footer Summary ---
+    // --- 4. Footer Summary ---
     y += 10;
-    const summaryX = 350;
-    const summaryValX = 450;
     
-    setFont(doc, 12, true);
-    doc.text('ยอดรวมสุทธิ (Grand Total):', summaryX, y + 5, { width: 100, align: 'right' });
-    
-    setFont(doc, 14, true);
-    doc.text(formatCurrency(po.totalAmount), summaryValX, y + 3, { width: 105, align: 'right' });
-    
-    // เส้นใต้คู่
-    const lineY = y + 22;
-    doc.moveTo(summaryValX, lineY).lineTo(555, lineY).stroke();
-    doc.moveTo(summaryValX, lineY + 3).lineTo(555, lineY + 3).stroke();
+    // ตีกรอบส่วนยอดรวม
+    const summaryBoxX = 350;
+    const summaryBoxY = y;
+    doc.fillColor('#f9f9f9').roundedRect(summaryBoxX, summaryBoxY, 205, 35, 3).fill();
+    doc.fillColor('#000');
 
-    // --- Signatures ---
-    let signY = y + 60;
-    if (signY > 700) { doc.addPage(); signY = 100; }
+    setFont(doc, 12, true);
+    doc.text('ยอดรวมสุทธิ (Grand Total):', summaryBoxX + 10, summaryBoxY + 10);
+    
+    setFont(doc, 16, true);
+    doc.text(formatCurrency(po.totalAmount), summaryBoxX + 10, summaryBoxY + 8, { width: 185, align: 'right' });
+
+    // --- 5. Signatures ---
+    let signY = y + 70;
+    if (signY > 720) { doc.addPage(); signY = 100; }
 
     const boxW = 200;
     const leftSignX = 60;
     const rightSignX = 340;
 
     setFont(doc, 11);
+    
     // Left Signature
     doc.text('_____________________________', leftSignX, signY, { align: 'center', width: boxW });
     doc.text('ผู้จัดทำ (Prepared By)', leftSignX, signY + 15, { align: 'center', width: boxW });
@@ -319,6 +339,11 @@ exports.exportPOtoExcel = async (po, res) => {
 
     const borderStyle = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
 
+    // เตรียมข้อมูลผู้ขายสำหรับ Excel (เหมือนใน PDF)
+    const supplier = po.supplier || {};
+    const supName = supplier.name || po.supplierName || '-';
+    const supContact = supplier.contactPerson || po.supplierContact || '-';
+
     // Header Info
     ws.addRow([COMPANY_INFO.name]);
     ws.mergeCells('A1:G1');
@@ -327,8 +352,8 @@ exports.exportPOtoExcel = async (po, res) => {
 
     ws.addRow(['ใบสั่งซื้อ / PURCHASE ORDER']).font = { bold: true, size: 12 };
     ws.addRow(['PO Number', po.poNumber]);
-    ws.addRow(['Vendor', po.supplierName]);
-    ws.addRow(['Contact', po.supplierContact]);
+    ws.addRow(['Vendor', supName]);      // แก้ไข: ใช้ตัวแปรที่ดึงจาก supplier object
+    ws.addRow(['Contact', supContact]);  // แก้ไข: ใช้ตัวแปรที่ดึงจาก supplier object
     ws.addRow(['Date', formatDate(po.orderDate)]);
     ws.addRow(['Status', po.status]);
     ws.addRow([]); 

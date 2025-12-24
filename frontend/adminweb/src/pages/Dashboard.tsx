@@ -1,10 +1,12 @@
+// src/pages/Dashboard.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Box, Grid, Paper, Stack, Typography, Chip, Divider, Skeleton, Button,
   Alert, Tooltip, IconButton, LinearProgress, List, ListItem, ListItemText, ListItemIcon
 } from "@mui/material";
+
+// Icons
 import RefreshIcon from "@mui/icons-material/Refresh";
-import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
@@ -21,12 +23,13 @@ import BugReportIcon from "@mui/icons-material/BugReport";
 import ArticleIcon from "@mui/icons-material/Article";
 import WarehouseIcon from "@mui/icons-material/Warehouse";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import StoreIcon from "@mui/icons-material/Store"; // ✅ เพิ่มไอคอน
+
 import { Link } from "react-router-dom";
 import { getToken } from "../lib/session";
 import { parseJwt, type AdminClaims } from "../lib/jwt";
 import { alpha } from "@mui/material/styles";
 
-// ✅ Import Recharts & Framer Motion
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer 
 } from 'recharts';
@@ -51,7 +54,7 @@ type UserPayload = {
   username?: string;
   roles?: string[];
   permissions?: string[];
-  name?: string; // เพิ่ม name เพื่อใช้ใน Greeting
+  name?: string;
 };
 
 function hasPerm(p: string) {
@@ -65,7 +68,6 @@ function getExpMsFromToken(): number | null {
   return claims?.exp ? claims.exp * 1000 : null;
 }
 
-// ✅ Greeting Component
 const Greeting = ({ user }: { user: any }) => {
   const hour = new Date().getHours();
   let text = "สวัสดีครับ";
@@ -90,8 +92,6 @@ export default function Dashboard() {
   const [orders, setOrders] = useState<Order[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-
-  // session countdown
   const [leftMs, setLeftMs] = useState<number | null>(() => {
     const expMs = getExpMsFromToken();
     return expMs ? expMs - Date.now() : null;
@@ -206,8 +206,10 @@ export default function Dashboard() {
     hasPerm("order:manage") && { to: "/orders", icon: <ShoppingCartIcon />, label: "ออเดอร์", color: "primary" as const },
     hasPerm("product:manage") && { to: "/products", icon: <CategoryIcon />, label: "สินค้า", color: "secondary" as const },
     hasPerm("po:manage") && { to: "/po", icon: <ReceiptLongIcon />, label: "ใบสั่งซื้อ", color: "success" as const },
-    hasPerm("receiving:manage") && { to: "/receiving", icon: <WarehouseIcon />, label: "รับสินค้าเข้า", color: "info" as const },
-    hasPerm("user:manage") && { to: "/users", icon: <PeopleAltIcon />, label: "ผู้ใช้", color: "warning" as const },
+    // ✅ เพิ่มควิกเมนู Suppliers
+    hasPerm("po:manage") && { to: "/suppliers", icon: <StoreIcon />, label: "ผู้ขาย (Suppliers)", color: "info" as const },
+    hasPerm("receiving:manage") && { to: "/receiving", icon: <WarehouseIcon />, label: "รับสินค้าเข้า", color: "warning" as const },
+    hasPerm("user:manage") && { to: "/users", icon: <PeopleAltIcon />, label: "ผู้ใช้", color: "error" as const },
     hasPerm("role:manage") && { to: "/roles", icon: <SecurityIcon />, label: "บทบาท/สิทธิ์", color: "default" as const },
     hasPerm("issue:manage") && { to: "/issues", icon: <BugReportIcon />, label: "รายการปัญหา", color: "error" as const },
     hasPerm("audit:manage") && { to: "/audit", icon: <ArticleIcon />, label: "Audit Logs", color: "primary" as const },
@@ -238,18 +240,16 @@ export default function Dashboard() {
         )}
       </Stack>
 
-      {/* ✅ ใส่ Greeting */}
       <Greeting user={JSON.parse(localStorage.getItem("aw_user") || "{}")} />
 
       {err && (
         <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>
       )}
 
-      {/* KPI Cards */}
       <Grid container spacing={2}>
         <Grid item xs={12} md={8}>
           <Grid container spacing={2}>
-            {/* 4 Cards บน */}
+            {/* 4 Cards */}
             <Grid item xs={6} md={3}>
               <Paper variant="outlined" sx={{ p: 2 }}>
                 <Stack spacing={1}>
@@ -295,7 +295,7 @@ export default function Dashboard() {
               </Paper>
             </Grid>
 
-            {/* ✅ Chart รายได้ (AreaChart) */}
+            {/* Chart */}
             <Grid item xs={12}>
               <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, height: 350 }}>
                 <Typography variant="h6" fontWeight={800} mb={2}>📈 แนวโน้มรายได้ (7 วันล่าสุด)</Typography>
@@ -328,7 +328,7 @@ export default function Dashboard() {
           </Grid>
         </Grid>
 
-        {/* Right Side: Quick Links & Attention */}
+        {/* Right Side */}
         <Grid item xs={12} md={4}>
           <Paper variant="outlined" sx={{ p: 2, height: "100%" }}>
             <Stack direction="row" spacing={1} alignItems="center" mb={1}>

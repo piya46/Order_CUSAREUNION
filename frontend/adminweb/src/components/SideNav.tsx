@@ -6,6 +6,7 @@ import {
 } from "@mui/material";
 import { Link, useLocation } from "react-router-dom";
 
+// Icons
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import Inventory2Icon from "@mui/icons-material/Inventory2";
@@ -19,6 +20,8 @@ import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import ExpandLess from "@mui/icons-material/ExpandLess";
 import ExpandMore from "@mui/icons-material/ExpandMore";
 import MenuOpenIcon from "@mui/icons-material/MenuOpen";
+import StoreIcon from "@mui/icons-material/Store"; // ✅ เพิ่มไอคอนร้านค้า
+
 import { getUser } from "../lib/session";
 
 const drawerWidth = 260;
@@ -63,6 +66,8 @@ const GROUPS: GroupItem[] = [
       { to: "/po/new", label: "Create PO", icon: <AddCircleOutlineIcon />, perm: "po:manage" },
       { to: "/receiving", label: "Receiving", icon: <MoveDownIcon />, perm: "receiving:manage" },
       { to: "/receiving/new", label: "Create Receiving", icon: <AddCircleOutlineIcon />, perm: "receiving:manage" },
+      // ✅ เพิ่มเมนู Suppliers ตรงนี้
+      { to: "/suppliers", label: "Suppliers (ผู้ขาย)", icon: <StoreIcon />, perm: "po:manage" }, 
     ]
   },
   {

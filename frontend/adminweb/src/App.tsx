@@ -1,3 +1,4 @@
+// src/App.tsx
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import Protected from './components/Protected';
@@ -13,6 +14,8 @@ import ReceivingList from './pages/Receivings/ReceivingList';
 import Issues from './pages/Issues/Issues';
 import AuditLogs from './pages/Audit/AuditLogs';
 import Inventory from './pages/Inventory';
+// ✅ Import หน้า Suppliers (อย่าลืมสร้างไฟล์ตามที่คุยกันก่อนหน้านี้นะครับ)
+import SupplierList from './pages/Suppliers/SupplierList';
 
 export default function App() {
   return (
@@ -80,6 +83,15 @@ export default function App() {
         element={
           <Protected roles={['purchasing','admin','manager']}>
             <Layout><ReceivingList /></Layout>
+          </Protected>
+        }
+      />
+      {/* ✅ เพิ่ม Route สำหรับ Suppliers */}
+      <Route
+        path="/suppliers"
+        element={
+          <Protected roles={['purchasing','admin','manager']}>
+            <Layout><SupplierList /></Layout>
           </Protected>
         }
       />
