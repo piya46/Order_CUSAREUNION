@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    // --- การตั้งค่าพื้นฐาน ---
+    "target": "ESNext",         // <-- แก้เป็น ESNext เพื่อรองรับ Vite
+    "module": "ESNext",         // <-- แก้เป็น ESNext เพื่อแก้ Error 'import.meta'
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+
+    // --- ส่วนที่เพิ่ม/แก้ไข เพื่อแก้ Error ---
+    "jsx": "react-jsx",         // <-- เพิ่ม: สำคัญมาก! แก้ Error JSX 1200+ รายการ
+    "moduleResolution": "bundler", // <-- เพิ่ม: แก้ Error 'import.meta'
+    "noEmit": true,             // <-- เพิ่ม: บอก tsc ให้เช็ก Type อย่างเดียว (Vite จะเป็นคน build)
+    "types": ["vite/client"],   // <-- เพิ่ม: ให้ tsc รู้จัก 'import.meta.env' ของ Vite
+
+    // --- การตั้งค่าสำหรับ Production Build (Vite จะจัดการส่วนนี้) ---
+    "rootDir": "./src"          // โฟลเดอร์ต้นทาง .ts
+  },
+  "include": ["src"],       // <-- แก้เป็น "src" ก็พอ
+  "exclude": ["node_modules"] 
+}

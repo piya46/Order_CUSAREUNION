@@ -1,0 +1,7 @@
+tunnel: efa57312-c049-4600-9966-ed05073fbf16          # ใส่ค่า Tunnel ID ที่สร้าง
+credentials-file: /Users/pst./.cloudflared/efa57312-c049-4600-9966-ed05073fbf16.json
+
+ingress:
+  - hostname: dev.seller.pstton.com
+    service: http://localhost:5173
+  - service: http_status:404

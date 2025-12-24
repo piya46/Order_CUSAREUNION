@@ -1,0 +1,49 @@
+# ================== Node.js ==================
+node_modules/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ================== Env & Config ==================
+.env
+.env.*
+uploads/
+private_uploads/
+public_uploads/
+tmp/
+logs/
+*.log
+
+# ================== Coverage & Build Output ==================
+coverage/
+dist/
+build/
+
+# ================== OS/Editor/IDE ==================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ================== Misc ==================
+*.tgz
+*.tar.gz
+
+# ================== Test Output ==================
+test-output/
+jest-test-results.json
+
+# ================== Optional (macOS/Windows artifacts) ==================
+ehthumbs.db
+Desktop.ini
+
+# ================== Seed/Backup Files ==================
+dump/
+seed/
+*.bak
+*.sql
+
+.DS_Store
+*.zip
