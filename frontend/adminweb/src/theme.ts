@@ -1,86 +1,56 @@
-// frontend/adminweb/src/theme.ts
 import { createTheme } from '@mui/material/styles';
 
 const theme = createTheme({
   palette: {
     mode: 'light',
     primary: {
-      main: '#FFC107', // สีเหลือง Amber
-      light: '#FFD54F',
-      dark: '#FFA000',
-      contrastText: '#000000', // ตัวหนังสือบนสีเหลืองต้องเป็นสีดำ
+      main: '#2563EB', // Modern Blue
+      light: '#60A5FA',
+      dark: '#1E40AF',
     },
     secondary: {
-      main: '#212121', // สีดำ Charcoal
-      light: '#484848',
-      dark: '#000000',
-      contrastText: '#FFFFFF',
+      main: '#10B981', // Emerald Green (Success)
     },
     background: {
-      default: '#F5F5F5',
+      default: '#F3F4F6', // Light Gray background for dashboard
       paper: '#FFFFFF',
     },
-    text: {
-      primary: '#212121',
-      secondary: '#757575',
-    },
-    error: { main: '#D32F2F' },
-    warning: { main: '#ED6C02' },
-    success: { main: '#2E7D32' },
-    info: { main: '#0288D1' },
+    status: {
+      pending: '#F59E0B', // Amber
+      processing: '#3B82F6', // Blue
+      completed: '#10B981', // Green
+      cancelled: '#EF4444', // Red
+      backorder: '#8B5CF6', // Purple (สำหรับรอของ)
+    }
   },
   typography: {
-    fontFamily: [
-      '"Prompt"',
-      '"Roboto"',
-      '"Helvetica"',
-      '"Arial"',
-      'sans-serif',
-    ].join(','),
+    fontFamily: '"Prompt", "Roboto", "Helvetica", "Arial", sans-serif', // ใช้ Prompt ให้เข้ากับภาษาไทย
     h1: { fontWeight: 700 },
-    h2: { fontWeight: 600 },
+    h2: { fontWeight: 700 },
     h3: { fontWeight: 600 },
-    h4: { fontWeight: 600 },
-    h5: { fontWeight: 600 },
-    h6: { fontWeight: 600 },
-    button: {
-      fontWeight: 600,
-      textTransform: 'none',
-    },
+    button: { textTransform: 'none', fontWeight: 600 }, // ปุ่มไม่ต้องตัวใหญ่หมด
   },
   components: {
-    MuiAppBar: {
-      styleOverrides: {
-        root: {
-          backgroundColor: '#212121',
-          color: '#FFC107',
-        },
-      },
-    },
     MuiButton: {
       styleOverrides: {
-        root: { borderRadius: 8 },
-        containedPrimary: {
-          '&:hover': { backgroundColor: '#FFB300' },
+        root: {
+          borderRadius: 8, // ปุ่มมน
+          boxShadow: 'none',
+          '&:hover': { boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' },
         },
       },
     },
-    MuiDrawer: {
+    MuiCard: {
       styleOverrides: {
-        paper: {
-          backgroundColor: '#FFFFFF',
-          borderRight: '1px solid #E0E0E0',
+        root: {
+          borderRadius: 12,
+          boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
         },
       },
     },
     MuiChip: {
       styleOverrides: {
-        root: { fontWeight: 500 },
-      },
-    },
-    MuiTableCell: {
-      styleOverrides: {
-        head: { fontWeight: 700, backgroundColor: '#FAFAFA' },
+        root: { fontWeight: 500, borderRadius: 6 },
       },
     },
   },
