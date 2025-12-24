@@ -23,7 +23,6 @@ import {
 
 type NewItem = { productId: string; variantId?: string; quantity: number; unitCost?: number };
 
-// Helper
 const formatDate = (date: string) => new Date(date).toLocaleDateString("th-TH", { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' });
 
 export default function ReceivingList() {
@@ -65,20 +64,16 @@ export default function ReceivingList() {
     })();
   }, []);
 
-  // ✅ [NEW] ดึงชื่อผู้ใช้จาก Login (localStorage) มาใส่เป็นชื่อผู้รับอัตโนมัติ
+  // Auto-fill receiver name
   useEffect(() => {
     try {
-      // ลองหา Key ที่มักจะใช้เก็บ User
       const stored = localStorage.getItem('user') || localStorage.getItem('admin') || localStorage.getItem('auth');
       if (stored) {
         const u = JSON.parse(stored);
-        // เลือก field ที่มีชื่อคน (name, username, firstName, etc.)
         const name = u.name || u.username || u.firstName || u.user?.name || u.user?.username || "Admin";
         setReceiverName(name);
       }
-    } catch (err) {
-      console.log("Auto-fill receiver name failed:", err);
-    }
+    } catch (err) { }
   }, []);
 
   const view = useMemo(() => {
@@ -88,23 +83,19 @@ export default function ReceivingList() {
     return list.filter(r => r.receivingNumber.toLowerCase().includes(qq) || (r.receiverName||"").toLowerCase().includes(qq));
   }, [rows, q]);
 
-  // Handlers
   const addRow = () => setItems(s => [...s, { productId: "", variantId: "", quantity: 1, unitCost: 0 }]);
   const removeRow = (idx: number) => setItems(s => s.filter((_,i)=>i!==idx));
   const updateRow = (idx: number, patch: Partial<NewItem>) => setItems(s => { const d=[...s]; d[idx] = { ...d[idx], ...patch }; return d; });
   const variantsOf = (pid: string): Variant[] => (products.find(p => p._id === pid)?.variants || []);
 
-  // ✅ Helper: หาชื่อสินค้า (รองรับทั้ง object populate และ id string)
   const getProductName = (item: any) => {
-    if (typeof item.product === 'object' && item.product?.name) return item.product.name;
+    if (item.product && typeof item.product === 'object' && item.product.name) return item.product.name;
     if (item.productName) return item.productName;
-    const pid = typeof item.product === 'object' ? item.product?._id : item.product;
+    const pid = (item.product && typeof item.product === 'object') ? item.product._id : item.product;
     const found = products.find(p => p._id === pid);
-    if (found) return found.name;
-    return "Unknown Product";
+    return found ? found.name : "Unknown Product";
   };
 
-  // ✅ Logic: เลือก PO แล้วดึงรายการสินค้ามาเติม (Auto-fill)
   const handleSelectPO = (poId: string) => {
     setPo(poId);
     if (!poId) {
@@ -124,6 +115,8 @@ export default function ReceivingList() {
             if (remaining > 0) {
                 const prodId = (typeof poItem.product === 'object' && poItem.product) ? poItem.product._id : (poItem.product || "");
                 let varId = "";
+                
+                // หา Product และ Variant ID จริงๆ จาก Store (เพราะ PO Item อาจจะไม่มี variantId เก็บไว้ในบางเคส)
                 const product = products.find(p => p._id === prodId);
                 if (product && product.variants) {
                     const matchVar = product.variants.find(v => v.size === poItem.size && v.color === poItem.color);
@@ -132,7 +125,7 @@ export default function ReceivingList() {
 
                 newItems.push({
                     productId: prodId,
-                    variantId: varId,
+                    variantId: varId, // ใส่ Variant ID ให้ตรง เพื่อให้ Backend ตัดสต็อกถูกตัว
                     quantity: remaining,
                     unitCost: poItem.price || 0
                 });
@@ -161,22 +154,24 @@ export default function ReceivingList() {
         po: po || undefined,
         receiverName: receiverName.trim(),
         receiveDate: receiveDate ? new Date(receiveDate).toISOString() : undefined,
-        items: validRows.map(it => ({
-          product: it.productId, // ✅ [FIXED] ใช้ key 'product'
-          variantId: it.variantId || undefined,
-          quantity: Number(it.quantity || 0),
-          unitCost: Number(it.unitCost || 0),
-        }))
+        items: validRows.map(it => {
+            const product = products.find(p => p._id === it.productId);
+            const variant = product?.variants.find(v => v._id === it.variantId);
+            return {
+                product: it.productId,
+                variantId: it.variantId || undefined,
+                size: variant?.size || "", // ส่งไปเผื่อไว้
+                color: variant?.color || "",
+                quantity: Number(it.quantity || 0),
+                unitCost: Number(it.unitCost || 0),
+            };
+        })
       };
       
-      console.log("Sending Receiving Payload:", body);
-
       await createReceiving(body);
       setOpenCreate(false);
       
-      // Reset (พยายามดึงชื่อเดิมกลับมาใส่ใหม่หลังจาก reset)
       setPo(""); 
-      // setReceiverName(""); // ไม่ต้อง reset ชื่อ เผื่อคีย์ต่อ
       setReceiveDate(new Date().toISOString().split('T')[0]); 
       setItems([{ productId: "", variantId: "", quantity: 1, unitCost: 0 }]);
       
@@ -208,7 +203,6 @@ export default function ReceivingList() {
   return (
     <Box p={{ xs:2, md:4 }} sx={{ bgcolor: '#f4f6f8', minHeight: '100vh' }}>
       
-      {/* Header */}
       <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems="center" mb={3} spacing={2}>
         <Box>
           <Typography variant="h4" fontWeight={800} color="primary.main">Receiving (Inbound)</Typography>
@@ -222,7 +216,6 @@ export default function ReceivingList() {
         </Stack>
       </Stack>
 
-      {/* Filter */}
       <Paper elevation={0} sx={{ p: 2, mb: 3, borderRadius: 3, border: '1px solid #e0e0e0', display: 'flex', alignItems: 'center' }}>
         <TextField 
           size="small" 
@@ -237,7 +230,6 @@ export default function ReceivingList() {
 
       {msg && <Alert severity={msg.type} sx={{ mb: 2, borderRadius: 2 }} onClose={()=>setMsg(null)}>{msg.text}</Alert>}
 
-      {/* Table */}
       <Paper elevation={0} sx={{ borderRadius: 3, overflow: "hidden", border: '1px solid #eaeff1', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
         <Table>
           <TableHead sx={{ bgcolor: '#f9fafb' }}>
@@ -304,7 +296,6 @@ export default function ReceivingList() {
                 </TextField>
               </Grid>
               <Grid item xs={12} sm={6}>
-                 {/* ✅ Auto-filled จาก Login แต่แก้ไขได้ */}
                  <TextField label="ชื่อผู้รับของ (Receiver)" value={receiverName} onChange={e=>setReceiverName(e.target.value)} fullWidth required />
               </Grid>
               <Grid item xs={12} sm={6}>
@@ -358,7 +349,6 @@ export default function ReceivingList() {
         </DialogActions>
       </Dialog>
 
-      {/* --- View Detail Modal --- */}
       <Dialog open={openDetail} onClose={()=>setOpenDetail(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
         <DialogTitle>รายละเอียดการรับ: <b>{selectedReceiving?.receivingNumber}</b></DialogTitle>
         <DialogContent dividers>

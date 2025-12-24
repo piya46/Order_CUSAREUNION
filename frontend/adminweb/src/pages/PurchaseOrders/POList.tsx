@@ -85,11 +85,11 @@ export default function POList() {
 
   // ✅ Helper: หาชื่อสินค้าสำหรับ PO
   const getProductName = (item: any) => {
-    if (typeof item.product === 'object' && item.product?.name) return item.product.name;
+    if (item.product && typeof item.product === 'object' && item.product.name) return item.product.name;
     if (item.productName) return item.productName;
     
     // ค้นจาก Products Store ใน Frontend
-    const pid = typeof item.product === 'object' ? item.product?._id : item.product;
+    const pid = (item.product && typeof item.product === 'object') ? item.product._id : item.product;
     const found = products.find(p => p._id === pid);
     return found ? found.name : "Unknown Product";
   };
@@ -101,21 +101,20 @@ export default function POList() {
 
     setSaving(true); setMsg(null);
     try {
-      // ✅ คำนวณยอดรวมที่ Frontend เพื่อส่งไปบันทึก
+      // ✅ คำนวณยอดรวมที่ Frontend
       const calculatedTotal = validRows.reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.unitPrice || 0)), 0);
 
-      // เตรียมข้อมูลสินค้าให้ครบถ้วน แก้ไขชื่อ Field ให้ตรงกับ Backend Model
       const payloadItems = validRows.map(it => {
         const product = products.find(p => p._id === it.productId);
         const variant = product?.variants.find(v => v._id === it.variantId);
         return {
-          product: it.productId,           // ✅ ถูกต้อง: PO Model ใช้ 'product'
-          variantId: it.variantId || undefined,
+          product: it.productId,
+          variantId: it.variantId || undefined, // ส่ง ID ไปด้วย
           productName: product?.name || "", 
           size: variant?.size || "",       
           color: variant?.color || "",     
           quantity: Number(it.quantity || 0),
-          price: Number(it.unitPrice || 0) // ✅ ถูกต้อง: POItem Model ใช้ 'price' (แต่ state เราใช้ unitPrice)
+          price: Number(it.unitPrice || 0)
         };
       });
 
@@ -170,7 +169,6 @@ export default function POList() {
   return (
     <Box p={{ xs: 2, md: 4 }} sx={{ bgcolor: '#f4f6f8', minHeight: '100vh' }}>
       
-      {/* Header */}
       <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems="center" mb={3} spacing={2}>
         <Box>
           <Typography variant="h4" fontWeight={800} color="primary.main">Purchase Orders</Typography>
@@ -184,7 +182,6 @@ export default function POList() {
         </Stack>
       </Stack>
 
-      {/* Filter & Message */}
       <Paper elevation={0} sx={{ p: 2, mb: 3, borderRadius: 3, border: '1px solid #e0e0e0', display: 'flex', alignItems: 'center' }}>
         <TextField 
           size="small" 
@@ -199,7 +196,6 @@ export default function POList() {
 
       {msg && <Alert sx={{ mb: 2, borderRadius: 2 }} severity={msg.type} onClose={()=>setMsg(null)}>{msg.text}</Alert>}
 
-      {/* Table */}
       <Paper elevation={0} sx={{ borderRadius: 3, overflow: "hidden", border: '1px solid #eaeff1', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
         <Table>
           <TableHead sx={{ bgcolor: '#f9fafb' }}>
@@ -357,10 +353,8 @@ export default function POList() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {selectedPO.items?.map((item: any, i: number) => {
-                    return (
+                  {selectedPO.items?.map((item: any, i: number) => (
                       <TableRow key={i}>
-                        {/* ✅ ใช้ Helper getProductName */}
                         <TableCell>{getProductName(item)}</TableCell>
                         <TableCell>{item.size} {item.color}</TableCell>
                         <TableCell align="right">{item.quantity}</TableCell>
@@ -370,8 +364,7 @@ export default function POList() {
                         <TableCell align="right">{formatTHB(item.price || 0)}</TableCell>
                         <TableCell align="right">{formatTHB((item.price||0) * (item.quantity||0))}</TableCell>
                       </TableRow>
-                    );
-                  })}
+                  ))}
                   <TableRow>
                     <TableCell colSpan={5} align="right" sx={{ fontWeight: 'bold' }}>Total</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 'bold', color: 'primary.main' }}>{formatTHB(selectedPO.totalAmount || 0)}</TableCell>
