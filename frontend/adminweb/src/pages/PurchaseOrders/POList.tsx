@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Box, Paper, Typography, Stack, TextField, Table, TableHead, TableRow,
   TableCell, TableBody, Button, Dialog, DialogTitle, DialogContent, DialogActions,
-  MenuItem, IconButton, Alert, Chip, Grid, Divider, Tooltip, InputAdornment
+  MenuItem, IconButton, Alert, Chip, Grid, Divider, Tooltip, InputAdornment, FormHelperText
 } from "@mui/material";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -16,12 +16,13 @@ import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import TableViewIcon from '@mui/icons-material/TableView';
 
-import { listPO, createPO, downloadPO, listInventory, type PO, type Product, type Variant } from "../../api/admin";
+// API
+import { listPO, createPO, downloadPO, listInventory, listSuppliers, type PO, type Product, type Variant, type Supplier } from "../../api/admin";
 
-// Types
+// Types Helper
 type NewItem = { productId: string; variantId?: string; quantity: number; unitPrice?: number };
 
-// Helpers
+// Formatting Helpers
 const formatTHB = (amount: number) => new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' }).format(amount);
 const formatDate = (date: string) => new Date(date).toLocaleDateString("th-TH", { year: 'numeric', month: 'short', day: 'numeric' });
 
@@ -29,7 +30,7 @@ export default function POList() {
   const [rows, setRows] = useState<PO[] | null>(null);
   const [q, setQ] = useState("");
 
-  // Dialogs
+  // Dialogs State
   const [openCreate, setOpenCreate] = useState(false);
   const [openDetail, setOpenDetail] = useState(false);
   const [selectedPO, setSelectedPO] = useState<PO | null>(null);
@@ -38,14 +39,16 @@ export default function POList() {
   const [msg, setMsg] = useState<{ type: 'success' | 'error' | 'info', text: string } | null>(null);
 
   // Form State
-  const [supplierName, setSupplierName] = useState("");
+  const [selectedSupplierId, setSelectedSupplierId] = useState(""); // ✅ เปลี่ยน: เก็บ ID ของ Supplier
   const [orderDate, setOrderDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [expectedReceiveDate, setExpectedReceiveDate] = useState<string>("");
   const [items, setItems] = useState<NewItem[]>([{ productId: "", variantId: "", quantity: 1, unitPrice: 0 }]);
 
+  // Master Data
   const [products, setProducts] = useState<Product[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]); // ✅ เพิ่ม: เก็บ list suppliers
 
-  // Load Data
+  // Load Main Data
   const load = async () => {
     try {
       const data = await listPO();
@@ -54,25 +57,47 @@ export default function POList() {
       setRows([]);
     }
   };
-  useEffect(() => { load(); }, []);
 
+  // Initial Load (PO, Products, Suppliers)
   useEffect(() => {
+    load();
+    
+    // Load Products
     (async () => {
       try {
         const inv = await listInventory();
         setProducts(inv);
       } catch { setProducts([]); }
     })();
+
+    // ✅ Load Suppliers
+    (async () => {
+      try {
+        const sups = await listSuppliers();
+        setSuppliers(sups);
+      } catch { setSuppliers([]); }
+    })();
   }, []);
 
+  // Filter & Search Logic
   const view = useMemo(() => {
     const list = rows || [];
     if (!q) return list;
     const qq = q.toLowerCase();
-    return list.filter(p => p.poNumber.toLowerCase().includes(qq) || (p.supplierName || "").toLowerCase().includes(qq));
+    return list.filter(p => {
+      const poNum = p.poNumber.toLowerCase();
+      // ✅ Handle การค้นหาชื่อ Supplier ทั้งจาก Object และ Snapshot
+      let supName = "";
+      if (typeof p.supplier === 'object' && p.supplier !== null) {
+        supName = (p.supplier as Supplier).name;
+      } else {
+        supName = p.supplierNameSnapshot || "";
+      }
+      return poNum.includes(qq) || supName.toLowerCase().includes(qq);
+    });
   }, [rows, q]);
 
-  // Logic
+  // Items Management
   const addRow = () => setItems(s => [...s, { productId: "", variantId: "", quantity: 1, unitPrice: 0 }]);
   const removeRow = (idx: number) => setItems(s => s.filter((_, i) => i !== idx));
 
@@ -83,25 +108,32 @@ export default function POList() {
   const variantsOf = (pid: string): Variant[] => (products.find(p => p._id === pid)?.variants || []);
   const totalAmount = useMemo(() => items.reduce((s, it) => s + (Number(it.unitPrice || 0) * Number(it.quantity || 0)), 0), [items]);
 
-  // ✅ Helper: หาชื่อสินค้าสำหรับ PO
+  // Helpers
   const getProductName = (item: any) => {
     if (item.product && typeof item.product === 'object' && item.product.name) return item.product.name;
     if (item.productName) return item.productName;
-    
-    // ค้นจาก Products Store ใน Frontend
     const pid = (item.product && typeof item.product === 'object') ? item.product._id : item.product;
     const found = products.find(p => p._id === pid);
     return found ? found.name : "Unknown Product";
   };
 
+  // ✅ Helper: ดึงชื่อ Supplier มาแสดง
+  const getSupplierName = (po: PO) => {
+    if (po.supplier && typeof po.supplier === 'object') {
+        return (po.supplier as Supplier).name;
+    }
+    return po.supplierNameSnapshot || "(ไม่ระบุ)";
+  };
+
+  // Submit Form
   const save = async () => {
-    if (!supplierName.trim()) { setMsg({ type: "error", text: "กรุณากรอกชื่อ Supplier" }); return; }
+    if (!selectedSupplierId) { setMsg({ type: "error", text: "กรุณาเลือก Supplier" }); return; }
+    
     const validRows = items.filter(it => it.productId && Number(it.quantity) > 0);
     if (!validRows.length) { setMsg({ type: "error", text: "กรุณาเพิ่มรายการสินค้าอย่างน้อย 1 แถว" }); return; }
 
     setSaving(true); setMsg(null);
     try {
-      // ✅ คำนวณยอดรวมที่ Frontend
       const calculatedTotal = validRows.reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.unitPrice || 0)), 0);
 
       const payloadItems = validRows.map(it => {
@@ -109,7 +141,7 @@ export default function POList() {
         const variant = product?.variants.find(v => v._id === it.variantId);
         return {
           product: it.productId,
-          variantId: it.variantId || undefined, // ส่ง ID ไปด้วย
+          variantId: it.variantId || undefined,
           productName: product?.name || "", 
           size: variant?.size || "",       
           color: variant?.color || "",     
@@ -119,7 +151,7 @@ export default function POList() {
       });
 
       const body = {
-        supplierName: supplierName.trim(),
+        supplier: selectedSupplierId, // ✅ ส่ง ID ไป Backend
         orderDate: orderDate ? new Date(orderDate).toISOString() : undefined,
         expectedReceiveDate: expectedReceiveDate ? new Date(expectedReceiveDate).toISOString() : undefined,
         items: payloadItems,
@@ -130,7 +162,8 @@ export default function POList() {
       setOpenCreate(false);
       
       // Reset Form
-      setSupplierName(""); setOrderDate(new Date().toISOString().split('T')[0]);
+      setSelectedSupplierId(""); 
+      setOrderDate(new Date().toISOString().split('T')[0]);
       setExpectedReceiveDate(""); setItems([{ productId: "", variantId: "", quantity: 1, unitPrice: 0 }]);
       
       await load();
@@ -182,6 +215,7 @@ export default function POList() {
         </Stack>
       </Stack>
 
+      {/* Search Bar */}
       <Paper elevation={0} sx={{ p: 2, mb: 3, borderRadius: 3, border: '1px solid #e0e0e0', display: 'flex', alignItems: 'center' }}>
         <TextField 
           size="small" 
@@ -196,6 +230,7 @@ export default function POList() {
 
       {msg && <Alert sx={{ mb: 2, borderRadius: 2 }} severity={msg.type} onClose={()=>setMsg(null)}>{msg.text}</Alert>}
 
+      {/* Data Table */}
       <Paper elevation={0} sx={{ borderRadius: 3, overflow: "hidden", border: '1px solid #eaeff1', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
         <Table>
           <TableHead sx={{ bgcolor: '#f9fafb' }}>
@@ -214,7 +249,8 @@ export default function POList() {
               {view.map(p => (
                 <TableRow component={motion.tr} initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} key={p._id} hover>
                   <TableCell sx={{ fontWeight: 600 }}>{p.poNumber}</TableCell>
-                  <TableCell>{p.supplierName || "-"}</TableCell>
+                  {/* ✅ เรียกใช้ Helper แสดงชื่อ */}
+                  <TableCell>{getSupplierName(p)}</TableCell>
                   <TableCell>{getStatusChip(p.status)}</TableCell>
                   <TableCell>{p.orderDate ? formatDate(p.orderDate) : "-"}</TableCell>
                   <TableCell>{p.expectedReceiveDate ? formatDate(p.expectedReceiveDate) : "-"}</TableCell>
@@ -257,7 +293,23 @@ export default function POList() {
           <Box sx={{ mt: 1 }}>
             <Grid container spacing={2}>
               <Grid item xs={12}>
-                <TextField label="Supplier Name (ชื่อซัพพลายเออร์)" value={supplierName} onChange={e=>setSupplierName(e.target.value)} fullWidth required />
+                {/* ✅ เปลี่ยน Input Text เป็น Select Dropdown */}
+                <TextField
+                  select
+                  label="Supplier (เลือกผู้ขาย)"
+                  value={selectedSupplierId}
+                  onChange={e=>setSelectedSupplierId(e.target.value)}
+                  fullWidth
+                  required
+                >
+                    <MenuItem value="">— กรุณาเลือก Supplier —</MenuItem>
+                    {suppliers.map(s => (
+                        <MenuItem key={s._id} value={s._id}>{s.name} {s.contactPerson ? `(${s.contactPerson})` : ""}</MenuItem>
+                    ))}
+                </TextField>
+                {suppliers.length === 0 && (
+                    <FormHelperText sx={{color: 'warning.main'}}>⚠️ ไม่พบข้อมูล Supplier กรุณาเพิ่ม Supplier ก่อน</FormHelperText>
+                )}
               </Grid>
               <Grid item xs={6}>
                 <TextField label="วันที่สั่ง (Order Date)" type="date" InputLabelProps={{ shrink: true }} value={orderDate} onChange={e=>setOrderDate(e.target.value)} fullWidth />
@@ -335,7 +387,8 @@ export default function POList() {
           {selectedPO && (
             <Stack spacing={2} sx={{ mt: 2 }}>
               <Grid container spacing={2}>
-                <Grid item xs={6}><Typography variant="body2" color="text.secondary">Supplier:</Typography> <Typography variant="body1" fontWeight={600}>{selectedPO.supplierName}</Typography></Grid>
+                {/* ✅ ใช้ Helper แสดงชื่อ Supplier */}
+                <Grid item xs={6}><Typography variant="body2" color="text.secondary">Supplier:</Typography> <Typography variant="body1" fontWeight={600}>{getSupplierName(selectedPO)}</Typography></Grid>
                 <Grid item xs={6}><Typography variant="body2" color="text.secondary">Order Date:</Typography> <Typography variant="body1">{formatDate(selectedPO.orderDate)}</Typography></Grid>
               </Grid>
               

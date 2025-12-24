@@ -99,30 +99,71 @@ export type Product = {
 
 export async function listInventory() {
   try {
-    const { data } = await api.get('/products'); // Backend ปกติใช้ /products
+    const { data } = await api.get('/products');
     return Array.isArray(data) ? (data as Product[]) : [];
   } catch {
     return [];
   }
 }
 
+/* ============================ Suppliers (COMPLETE) ============================ */
+export type Supplier = {
+  _id: string;
+  name: string;
+  contactPerson?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  taxId?: string;
+  isActive?: boolean;
+};
+
+export async function listSuppliers() {
+  const { data } = await api.get('/suppliers');
+  return Array.isArray(data) ? data as Supplier[] : [];
+}
+
+// ✅ เพิ่ม: ดึงข้อมูล Supplier รายคน
+export async function getSupplier(id: string) {
+  const { data } = await api.get(`/suppliers/${id}`);
+  return data as Supplier;
+}
+
+export async function createSupplier(body: Partial<Supplier>) {
+  const { data } = await api.post('/suppliers', body);
+  return data as Supplier;
+}
+
+// ✅ เพิ่ม: แก้ไข Supplier
+export async function updateSupplier(id: string, body: Partial<Supplier>) {
+  const { data } = await api.put(`/suppliers/${id}`, body);
+  return data as Supplier;
+}
+
+// ✅ เพิ่ม: ลบ Supplier
+export async function deleteSupplier(id: string) {
+  const { data } = await api.delete(`/suppliers/${id}`);
+  return data as { success: boolean; message?: string };
+}
+
 /* ============================ Purchasing (PO) ============================ */
 export type POItem = {
-  product?: string | Product; // รองรับทั้ง ID (ตอนส่งไป) และ Object (ตอนรับมา)
-  productId?: string;        // เผื่อไว้สำหรับบาง logic
-  productName?: string;      // ชื่อสินค้า (Flatten มาแล้วหรือมีใน response)
+  product?: string | Product;
+  productId?: string;
+  productName?: string;
   variantId?: string;
   size?: string;
   color?: string;
   quantity: number;
-  unitPrice?: number;        // Backend อาจส่งมาเป็น price หรือ unitPrice
+  unitPrice?: number;
   price?: number;
 };
 
 export type PO = {
   _id: string;
   poNumber: string;
-  supplierName?: string;
+  supplier: Supplier | string; 
+  supplierNameSnapshot?: string;
   status: 'DRAFT'|'ORDERED'|'PARTIAL'|'RECEIVED'|'CANCELLED';
   orderDate?: string;
   expectedReceiveDate?: string;
@@ -151,11 +192,10 @@ export async function updatePO(id: string, body: Partial<PO>) {
   return data as PO;
 }
 
-// ✅ [FIX] เพิ่มฟังก์ชัน Download PO (Blob)
 export async function downloadPO(id: string, type: "pdf" | "excel") {
   const { data } = await api.get(`/purchase-orders/${id}/export`, {
     params: { type },
-    responseType: "blob", // สำคัญมาก
+    responseType: "blob",
   });
   
   const url = window.URL.createObjectURL(new Blob([data]));
@@ -168,7 +208,6 @@ export async function downloadPO(id: string, type: "pdf" | "excel") {
   window.URL.revokeObjectURL(url);
 }
 
-// เก็บไว้เผื่อใช้แบบเก่า (แต่แนะนำให้ใช้ downloadPO ด้านบน)
 export function exportPOUrl(id: string, type: 'pdf'|'excel' = 'pdf') {
   return `${import.meta.env.VITE_API_URL || ''}/api/purchase-orders/${id}/export?type=${type}`;
 }
@@ -188,7 +227,7 @@ export type ReceivingItem = {
 export type Receiving = {
   _id: string;
   receivingNumber: string;
-  po?: string | PO; // อาจจะเป็น Object PO ถ้า populate
+  po?: string | PO;
   receiverName?: string;
   receiveDate?: string;
   status: 'COMPLETE'|'PARTIAL'|'REJECTED';
@@ -216,7 +255,6 @@ export async function updateReceiving(id: string, body: Partial<Receiving>) {
   return data as Receiving;
 }
 
-// ✅ [FIX] เพิ่มฟังก์ชัน Download Receiving (Blob)
 export async function downloadReceiving(id: string, type: "pdf" | "excel") {
   const { data } = await api.get(`/receivings/${id}/export`, {
     params: { type },
@@ -238,8 +276,6 @@ export function exportReceivingUrl(id: string, type: 'pdf'|'excel' = 'pdf') {
 }
 
 /* ============================ Issues ============================ */
-// import { Issue } from '../types'; // ถ้ามีไฟล์ types แยกให้ uncomment
-// หรือ define type ง่ายๆ ไว้ตรงนี้ถ้าไม่มีไฟล์แยก
 export type Issue = {
   _id: string;
   title: string;

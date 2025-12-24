@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const receivingItemSchema = new mongoose.Schema({
   product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
-  variantId: { type: String }, // <--- เพิ่มบรรทัดนี้ครับ (สำคัญมาก)
+  variantId: { type: String }, // ✅ เพิ่ม Field นี้สำคัญมาก
   size: String,
   color: String,
   quantity: Number,

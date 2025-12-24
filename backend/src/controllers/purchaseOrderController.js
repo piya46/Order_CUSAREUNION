@@ -1,11 +1,21 @@
 const PurchaseOrder = require('../models/PurchaseOrder');
+const Supplier = require('../models/Supplier');
 const { generatePONumber } = require('../utils/generate');
 const exportService = require('../services/exportService');
 const auditLogService = require('../services/auditLogService');
 
 exports.create = async (req, res, next) => {
   try {
-    const po = new PurchaseOrder(req.body);
+    // 1. หาข้อมูล Supplier เพื่อเอาชื่อมาเก็บเป็น Snapshot
+    const supplierDoc = await Supplier.findById(req.body.supplier);
+    
+    // 2. สร้าง PO
+    const po = new PurchaseOrder({
+        ...req.body,
+        // ถ้าหาเจอให้ใช้ชื่อจริง ถ้าไม่เจอให้ใส่ Unknown (กรณีส่ง ID มั่วมา)
+        supplierNameSnapshot: supplierDoc ? supplierDoc.name : 'Unknown Supplier'
+    });
+
     po.poNumber = generatePONumber();
     await po.save();
 
@@ -22,17 +32,10 @@ exports.create = async (req, res, next) => {
 
 exports.getAll = async (req, res, next) => {
   try {
-    // ✅ แก้ไข: เพิ่ม populate เพื่อดึงรายละเอียดสินค้า (ชื่อ, รหัส, ฯลฯ) ไปแสดงผล
     const pos = await PurchaseOrder.find()
-      .populate('items.product') 
+      .populate('items.product')
+      .populate('supplier') // 🔥 ดึงข้อมูลร้านค้ามาด้วย
       .sort({ createdAt: -1 });
-
-    await auditLogService.log({
-      user: req.user?.id,
-      action: 'PO_LIST_VIEW',
-      detail: { count: pos.length },
-      ip: req.ip
-    });
 
     res.json(pos);
   } catch (err) { next(err); }
@@ -40,19 +43,11 @@ exports.getAll = async (req, res, next) => {
 
 exports.getOne = async (req, res, next) => {
   try {
-    // ✅ แก้ไข: เพิ่ม populate ตรงนี้ด้วย
     const po = await PurchaseOrder.findById(req.params.id)
-      .populate('items.product');
+      .populate('items.product')
+      .populate('supplier'); // 🔥 ดึงข้อมูลร้านค้ามาด้วย
       
     if (!po) return res.status(404).json({ error: 'PO not found' });
-
-    await auditLogService.log({
-      user: req.user?.id,
-      action: 'PO_DETAIL_VIEW',
-      detail: { poId: po._id, poNumber: po.poNumber },
-      ip: req.ip
-    });
-
     res.json(po);
   } catch (err) { next(err); }
 };

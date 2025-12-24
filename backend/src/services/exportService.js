@@ -4,23 +4,24 @@ const path = require('path');
 const fs = require('fs');
 
 // ==========================================
-// ⚙️ CONFIG: ข้อมูลบริษัท (ผู้ซื้อ) แก้ไขตรงนี้ครับ
+// ⚙️ CONFIG: ข้อมูลบริษัท (ผู้ซื้อ)
 // ==========================================
 const COMPANY_INFO = {
-  name: "บริษัท ตัวอย่าง จำกัด (สำนักงานใหญ่)",
-  nameEn: "EXAMPLE COMPANY CO., LTD.",
-  address: "123/45 ถนนพระราม 9 แขวงห้วยขวาง เขตห้วยขวาง กรุงเทพฯ 10310",
-  taxId: "010555XXXXXXX",
-  phone: "02-123-4567",
-  email: "purchase@example.com",
-  logo: "logo_placeholder.png"
+  name: "สมาคมนิสิตเก่าวิทยาศาสตร์ จุฬาลงกรณ์มหาวิทยาลัย",
+  nameEn: "-",
+  address: "254 ถ.พญาไท แขวงวังใหม่ เขตปทุมวัน กรุงเทพฯ 10330",
+  taxId: "-",
+  phone: "-",
+  email: "-",
+  logo: "logo_placeholder.png" // ต้องมีไฟล์นี้ใน backend/public/uploads/ หรือใส่ path รูปที่มีจริง
 };
 
 // ==========================================
 // 🔧 HELPERS
 // ==========================================
+// เช็คฟอนต์ภาษาไทย (สำคัญมากต้องมีไฟล์ THSarabunNew.ttf)
 const fontPath = path.join(__dirname, '../fonts/THSarabunNew.ttf');
-const boldFontPath = path.join(__dirname, '../fonts/THSarabunNew Bold.ttf'); // ถ้ามีตัวหนา
+const boldFontPath = path.join(__dirname, '../fonts/THSarabunNew Bold.ttf');
 const hasThaiFont = fs.existsSync(fontPath);
 const hasBoldFont = fs.existsSync(boldFontPath);
 
@@ -50,82 +51,78 @@ const formatDate = (date) => {
 };
 
 // ==========================================
-// 1. Export Purchase Order (PO) -> PDF (สวยงาม)
+// 1. Export Purchase Order (PO) -> PDF
 // ==========================================
 exports.exportPOtoPDF = (po, res) => {
   try {
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
 
-    // Handle Stream Error
     doc.on('error', (err) => { console.error("PDF Error:", err); });
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="PO_${po.poNumber}.pdf"`);
     doc.pipe(res);
 
-    // ---------------------------------------------------------
-    // 1. HEADER & COMPANY INFO (ผู้ซื้อ)
-    // ---------------------------------------------------------
+    // --- Header ---
     const logoPath = path.join(__dirname, `../public/uploads/${COMPANY_INFO.logo}`);
-    
-    // Logo (ซ้ายบน)
+    // เช็คว่ามีรูปหรือไม่ก่อนโหลด
     if (fs.existsSync(logoPath)) {
       doc.image(logoPath, 40, 40, { width: 60 });
     }
 
-    // Company Details (ซ้าย ถัดจากโลโก้)
     const headerLeftX = fs.existsSync(logoPath) ? 110 : 40;
     
-    setFont(doc, 18, true); // ตัวหนา
+    // Company Info
+    setFont(doc, 18, true);
     doc.text(COMPANY_INFO.name, headerLeftX, 40);
     
     setFont(doc, 10);
     doc.text(COMPANY_INFO.nameEn, headerLeftX, 58);
     doc.text(COMPANY_INFO.address, headerLeftX, 70);
-    doc.text(`เลขประจำตัวผู้เสียภาษี: ${COMPANY_INFO.taxId}`, headerLeftX, 82);
+    doc.text(`Tax ID: ${COMPANY_INFO.taxId}`, headerLeftX, 82);
     doc.text(`Tel: ${COMPANY_INFO.phone} | Email: ${COMPANY_INFO.email}`, headerLeftX, 94);
 
-    // Document Title (ขวาบน)
+    // Document Title (Right Side)
     setFont(doc, 24, true);
     doc.text('ใบสั่งซื้อ', 0, 40, { align: 'right' });
     setFont(doc, 14);
     doc.text('PURCHASE ORDER', 0, 65, { align: 'right' });
 
-    // PO Number Box (ขวาบน ใต้ชื่อเอกสาร)
+    // PO Info Box
     const boxTop = 85;
-    const boxLeft = 400;
-    doc.rect(boxLeft, boxTop, 155, 55).strokeColor('#333').stroke();
+    const boxLeft = 380;
+    const boxWidth = 175;
+    
+    // วาดกรอบสี่เหลี่ยมโค้งมน
+    doc.roundedRect(boxLeft, boxTop, boxWidth, 55, 5).strokeColor('#333').stroke();
     
     setFont(doc, 11, true);
-    doc.text('เลขที่ใบสั่งซื้อ (PO No.):', boxLeft + 5, boxTop + 5);
-    setFont(doc, 12, true);
-    doc.text(po.poNumber, boxLeft + 5, boxTop + 20, { align: 'right', width: 145 }); // ชิดขวาในกล่อง
+    doc.text('เลขที่ใบสั่งซื้อ (PO No.):', boxLeft + 10, boxTop + 8);
+    setFont(doc, 14, true);
+    doc.text(po.poNumber, boxLeft + 10, boxTop + 20, { align: 'right', width: boxWidth - 20 });
     
     setFont(doc, 11, true);
-    doc.text('วันที่ (Date):', boxLeft + 5, boxTop + 35);
+    doc.text('วันที่ (Date):', boxLeft + 10, boxTop + 38);
     setFont(doc, 12);
-    doc.text(formatDate(po.orderDate), boxLeft + 60, boxTop + 35, { align: 'right', width: 90 });
+    doc.text(formatDate(po.orderDate), boxLeft + 80, boxTop + 38, { align: 'right', width: boxWidth - 90 });
 
-    // ---------------------------------------------------------
-    // 2. VENDOR INFO (ผู้ขาย) - กรอบแยกชัดเจน
-    // ---------------------------------------------------------
+    // --- Vendor Section ---
     doc.moveDown();
     const vendorY = 150;
     
-    // วาดพื้นหลังหัวข้อ Vendor
+    // แถบหัวข้อ
     doc.fillColor('#eee').rect(40, vendorY, 515, 20).fill();
-    doc.fillColor('#000'); // กลับมาสีดำ
+    doc.fillColor('#000');
 
     setFont(doc, 12, true);
     doc.text('ผู้จำหน่าย (VENDOR / SUPPLIER)', 45, vendorY + 4);
 
-    // ข้อมูล Vendor
-    setFont(doc, 12);
+    // ข้อมูลผู้ขาย
     const vendorInfoY = vendorY + 25;
-    
+    setFont(doc, 12);
     doc.text('ชื่อผู้ขาย:', 45, vendorInfoY);
     setFont(doc, 14, true); 
-    doc.text(po.supplierName || '-', 100, vendorInfoY - 2); // ชื่อเด่นๆ
+    doc.text(po.supplierName || '-', 100, vendorInfoY - 2); 
 
     setFont(doc, 12);
     doc.text('ผู้ติดต่อ:', 45, vendorInfoY + 20);
@@ -134,16 +131,14 @@ exports.exportPOtoPDF = (po, res) => {
     doc.text('หมายเหตุ:', 300, vendorInfoY);
     doc.text(po.note || '-', 350, vendorInfoY, { width: 200 });
 
-    // ---------------------------------------------------------
-    // 3. TABLE HEADER (หัวตารางสวยงาม)
-    // ---------------------------------------------------------
+    // --- Table Header ---
     let y = 220;
     const col = { no: 40, product: 80, spec: 230, qty: 350, price: 410, total: 480 };
     const colW = { no: 30, product: 140, spec: 110, qty: 50, price: 60, total: 75 };
 
-    // Header Background
-    doc.fillColor('#2c3e50').rect(40, y, 515, 25).fill(); // สีน้ำเงินเข้ม
-    doc.fillColor('#fff'); // ตัวหนังสือสีขาว
+    // Header Background (Navy Blue)
+    doc.fillColor('#2c3e50').rect(40, y, 515, 25).fill();
+    doc.fillColor('#fff'); 
 
     setFont(doc, 12, true);
     const headY = y + 7;
@@ -154,12 +149,10 @@ exports.exportPOtoPDF = (po, res) => {
     doc.text('ราคา/หน่วย', col.price, headY, { width: colW.price, align: 'right' });
     doc.text('รวมเงิน', col.total, headY, { width: colW.total, align: 'right' });
 
-    doc.fillColor('#000'); // กลับมาสีดำสำหรับเนื้อหา
+    doc.fillColor('#000');
     y += 25;
 
-    // ---------------------------------------------------------
-    // 4. TABLE ITEMS (รายการสินค้า)
-    // ---------------------------------------------------------
+    // --- Table Items ---
     setFont(doc, 11);
 
     if (po.items && po.items.length > 0) {
@@ -168,10 +161,9 @@ exports.exportPOtoPDF = (po, res) => {
         if (y > 700) {
           doc.addPage();
           y = 40;
-          // วาดหัวตารางซ้ำ (Optional)
         }
 
-        // Zebra Striping (สีสลับบรรทัด)
+        // Zebra Striping
         if (index % 2 === 0) {
           doc.fillColor('#f9f9f9').rect(40, y, 515, 20).fill();
           doc.fillColor('#000');
@@ -196,30 +188,23 @@ exports.exportPOtoPDF = (po, res) => {
     // เส้นปิดท้ายตาราง
     doc.moveTo(40, y).lineTo(555, y).strokeColor('#ccc').stroke();
 
-    // ---------------------------------------------------------
-    // 5. SUMMARY FOOTER (สรุปยอด)
-    // ---------------------------------------------------------
+    // --- Footer Summary ---
     y += 10;
     const summaryX = 350;
     const summaryValX = 450;
     
-    // ยอดรวม
     setFont(doc, 12, true);
     doc.text('ยอดรวมสุทธิ (Grand Total):', summaryX, y + 5, { width: 100, align: 'right' });
     
     setFont(doc, 14, true);
-    doc.fillColor('#000');
     doc.text(formatCurrency(po.totalAmount), summaryValX, y + 3, { width: 105, align: 'right' });
     
-    // เส้นใต้คู่ที่ยอดเงิน
+    // เส้นใต้คู่
     const lineY = y + 22;
     doc.moveTo(summaryValX, lineY).lineTo(555, lineY).stroke();
     doc.moveTo(summaryValX, lineY + 3).lineTo(555, lineY + 3).stroke();
 
-
-    // ---------------------------------------------------------
-    // 6. SIGNATURE (ลายเซ็น)
-    // ---------------------------------------------------------
+    // --- Signatures ---
     let signY = y + 60;
     if (signY > 700) { doc.addPage(); signY = 100; }
 
@@ -227,13 +212,13 @@ exports.exportPOtoPDF = (po, res) => {
     const leftSignX = 60;
     const rightSignX = 340;
 
-    // กรอบลายเซ็นผู้จัดทำ
     setFont(doc, 11);
+    // Left Signature
     doc.text('_____________________________', leftSignX, signY, { align: 'center', width: boxW });
     doc.text('ผู้จัดทำ (Prepared By)', leftSignX, signY + 15, { align: 'center', width: boxW });
     doc.text(`วันที่: ${formatDate(new Date())}`, leftSignX, signY + 30, { align: 'center', width: boxW });
 
-    // กรอบลายเซ็นผู้อนุมัติ
+    // Right Signature
     doc.text('_____________________________', rightSignX, signY, { align: 'center', width: boxW });
     doc.text('ผู้อนุมัติ (Approved By)', rightSignX, signY + 15, { align: 'center', width: boxW });
     doc.text('วันที่: ______/______/______', rightSignX, signY + 30, { align: 'center', width: boxW });
@@ -246,9 +231,9 @@ exports.exportPOtoPDF = (po, res) => {
   }
 };
 
-// ... (ส่วน exportReceivingToPDF, exportPOtoExcel, exportReceivingToExcel ใช้ของเดิม หรือจะให้ผมแก้ให้ด้วยบอกได้ครับ)
-// ... เพื่อความชัวร์ ผมจะใส่ exportReceivingToPDF แบบปรับปรุงให้ด้วยครับ เพื่อให้ Theme เดียวกัน
-
+// ==========================================
+// 2. Export Receiving (RC) -> PDF
+// ==========================================
 exports.exportReceivingToPDF = (receiving, res) => {
     try {
       const doc = new PDFDocument({ margin: 40, size: 'A4' });
@@ -262,15 +247,15 @@ exports.exportReceivingToPDF = (receiving, res) => {
       const logoPath = path.join(__dirname, `../public/uploads/${COMPANY_INFO.logo}`);
       if (fs.existsSync(logoPath)) doc.image(logoPath, 40, 40, { width: 60 });
   
-      setFont(doc, 18, true);
       const hX = fs.existsSync(logoPath) ? 110 : 40;
+      setFont(doc, 18, true);
       doc.text(COMPANY_INFO.name, hX, 40);
       setFont(doc, 10);
       doc.text('ใบรับสินค้าเข้าคลัง (RECEIVING REPORT)', hX, 60);
   
-      // Info Box
+      // Info Box (สีเทาอ่อน)
       const boxTop = 90;
-      doc.fillColor('#f5f5f5').rect(40, boxTop, 515, 60).fill();
+      doc.fillColor('#f5f5f5').roundedRect(40, boxTop, 515, 60, 5).fill();
       doc.fillColor('#000');
   
       setFont(doc, 12);
@@ -280,9 +265,9 @@ exports.exportReceivingToPDF = (receiving, res) => {
       doc.text(`ผู้รับของ: ${receiving.receiverName}`, 300, boxTop + 10);
       doc.text(`วันที่รับ: ${formatDate(receiving.receiveDate)}`, 300, boxTop + 30);
   
-      // Table
+      // Table Header (Green)
       let y = 170;
-      doc.fillColor('#27ae60').rect(40, y, 515, 25).fill(); // สีเขียว
+      doc.fillColor('#27ae60').rect(40, y, 515, 25).fill();
       doc.fillColor('#fff');
   
       setFont(doc, 12, true);
@@ -311,7 +296,7 @@ exports.exportReceivingToPDF = (receiving, res) => {
           });
       }
   
-      // Sign
+      // Signature
       const signY = y + 50 > 700 ? 700 : y + 50;
       if (signY === 700 && y > 650) doc.addPage();
       
@@ -324,6 +309,9 @@ exports.exportReceivingToPDF = (receiving, res) => {
     } catch (err) { console.error(err); res.end(); }
 };
 
+// ==========================================
+// 3. Export PO -> Excel
+// ==========================================
 exports.exportPOtoExcel = async (po, res) => {
   try {
     const wb = new excel.Workbook();
@@ -388,6 +376,9 @@ exports.exportPOtoExcel = async (po, res) => {
   }
 };
 
+// ==========================================
+// 4. Export Receiving -> Excel
+// ==========================================
 exports.exportReceivingToExcel = async (receiving, res) => {
   try {
     const wb = new excel.Workbook();
