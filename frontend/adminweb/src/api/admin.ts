@@ -172,3 +172,20 @@ export async function updateReceiving(id: string, body: Partial<Receiving>) {
 export function exportReceivingUrl(id: string, type: 'pdf'|'excel' = 'pdf') {
   return `/api/receivings/${id}/export?type=${type}`;
 }
+
+import { Issue } from '../types'; 
+
+export async function listIssues() {
+  const { data } = await api.get('/issues');
+  return Array.isArray(data) ? (data as Issue[]) : [];
+}
+
+export async function createIssue(payload: Partial<Issue>) {
+  const { data } = await api.post('/issues', payload);
+  return data as Issue;
+}
+
+export async function updateIssue(id: string, payload: Partial<Issue>) {
+  const { data } = await api.put(`/issues/${id}`, payload);
+  return data as Issue;
+}

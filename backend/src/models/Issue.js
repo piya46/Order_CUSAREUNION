@@ -7,7 +7,9 @@ const issueSchema = new mongoose.Schema({
   reporter: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   description: String,
   evidenceUrls: [String],
-  status: { type: String, enum: ['OPEN', 'PROCESSING', 'RESOLVED', 'REJECTED'], default: 'OPEN' }
+  priority: { type: String, enum: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'], default: 'MEDIUM' },
+  adminComment: String,
+  status: { type: String, enum: ['OPEN', 'PROCESSING', 'RESOLVED', 'REJECTED', 'CLOSED'], default: 'OPEN' }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Issue', issueSchema);

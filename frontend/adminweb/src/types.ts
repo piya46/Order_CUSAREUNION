@@ -71,7 +71,11 @@ export type Issue = {
   refType: "ORDER" | "RECEIVING" | "PRODUCT";
   refId: string;
   description?: string;
-  status: "OPEN" | "PROCESSING" | "RESOLVED" | "REJECTED";
+  // เพิ่ม 2 บรรทัดนี้
+  priority: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"; 
+  adminComment?: string;
+  
+  status: "OPEN" | "PROCESSING" | "RESOLVED" | "REJECTED" | "CLOSED";
   createdAt: string;
 };
 
