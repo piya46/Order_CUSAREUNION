@@ -20,7 +20,6 @@ import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import BrokenImageIcon from "@mui/icons-material/BrokenImage";
 
 // Import API
-// ✅ นำเข้า Type 'Order' มาใช้ด้วย
 import { getOrder, updateOrder, verifySlip, getSlipSignedUrl, retrySlip, Order } from "../../api/admin";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
@@ -39,7 +38,6 @@ export default function OrdersDetail() {
   const theme = useTheme();
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  // ✅ ใช้ Type 'Order' ที่เราเพิ่งแก้ แทน 'any'
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [edit, setEdit] = useState<any>({});
@@ -62,7 +60,6 @@ export default function OrdersDetail() {
         setOrder(d); 
         setEdit(d); 
         
-        // ✅ ตรงนี้จะไม่แดงแล้ว เพราะ 'Order' ใน admin.ts มี field 'slipUrl' แล้ว
         if (d.slipUrl) {
             setSlipUrl(d.slipUrl);
             setSlipError(false);
@@ -86,7 +83,14 @@ export default function OrdersDetail() {
       const url = typeof result === 'string' ? result : result?.url;
       
       if (url) {
-        const fullUrl = url.startsWith("http") ? url : `${API_URL}${url}`;
+        // ✅ FIX: เช็คว่าถ้า API_URL ใน .env จบด้วย /api ให้ตัดทิ้ง
+        // เพื่อป้องกันกรณีที่ Backend ส่ง path มาเริ่มด้วย /api แล้วมันชนกันเป็น /api/api
+        let baseUrl = API_URL;
+        if (baseUrl.endsWith('/api')) {
+            baseUrl = baseUrl.slice(0, -4);
+        }
+
+        const fullUrl = url.startsWith("http") ? url : `${baseUrl}${url}`;
         setSlipUrl(fullUrl);
       }
     } catch (error) {
@@ -160,7 +164,6 @@ export default function OrdersDetail() {
   };
 
   const onPrintAddress = () => {
-      // เพิ่มการเช็ค order กัน error (แม้ TypeScript จะรู้แล้วว่ามีค่า แต่ runtime อาจเป็น null ได้ในเสี้ยววินาที)
       if (!order) return;
 
       const w = window.open('', '_blank');
