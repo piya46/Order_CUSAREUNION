@@ -19,8 +19,9 @@ import ZoomInIcon from "@mui/icons-material/ZoomIn";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import BrokenImageIcon from "@mui/icons-material/BrokenImage";
 
-// Import API (ตรวจสอบ path ให้ตรงกับโปรเจ็คจริง)
-import { getOrder, updateOrder, verifySlip, getSlipSignedUrl, retrySlip } from "../../api/admin";
+// Import API
+// ✅ นำเข้า Type 'Order' มาใช้ด้วย
+import { getOrder, updateOrder, verifySlip, getSlipSignedUrl, retrySlip, Order } from "../../api/admin";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
 
@@ -38,7 +39,8 @@ export default function OrdersDetail() {
   const theme = useTheme();
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  const [order, setOrder] = useState<any>(null);
+  // ✅ ใช้ Type 'Order' ที่เราเพิ่งแก้ แทน 'any'
+  const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [edit, setEdit] = useState<any>({});
   const [saving, setSaving] = useState(false);
@@ -60,12 +62,11 @@ export default function OrdersDetail() {
         setOrder(d); 
         setEdit(d); 
         
-        // ✅ ปรับปรุง: ใช้ slipUrl ที่ Backend ส่งมาให้เลย (ลด API call)
+        // ✅ ตรงนี้จะไม่แดงแล้ว เพราะ 'Order' ใน admin.ts มี field 'slipUrl' แล้ว
         if (d.slipUrl) {
-            setSlipUrl(d.slipUrl); // ใช้ URL ที่มี Signature จาก Backend
+            setSlipUrl(d.slipUrl);
             setSlipError(false);
         } else if (d.paymentSlipFilename) {
-            // Fallback: ถ้าไม่มี slipUrl มาแต่มีชื่อไฟล์ ค่อยไปขอใหม่
             fetchSlipUrl(d._id);
         } else {
             setSlipUrl(""); 
@@ -78,16 +79,13 @@ export default function OrdersDetail() {
       .finally(() => setLoading(false));
   };
 
-  // ฟังก์ชันขอ URL รูปใหม่ (ใช้ตอนอัปโหลดสลิปใหม่ หรือรีเฟรช)
   const fetchSlipUrl = async (orderId: string) => {
     setSlipError(false);
     try {
       const result = await getSlipSignedUrl(orderId);
-      // รองรับทั้งแบบ string ตรงๆ หรือ object { url: ... }
       const url = typeof result === 'string' ? result : result?.url;
       
       if (url) {
-        // ถ้า URL ไม่ได้เริ่มด้วย http (เป็น relative path) ให้เติม Domain API
         const fullUrl = url.startsWith("http") ? url : `${API_URL}${url}`;
         setSlipUrl(fullUrl);
       }
@@ -102,7 +100,6 @@ export default function OrdersDetail() {
     try {
       const res = await updateOrder(id!, { orderStatus: edit.orderStatus, trackingNumber: edit.trackingNumber });
       setOrder(res); 
-      // หลังเซฟ ถ้าสถานะเปลี่ยน อาจจะต้องรีเฟรช logic บางอย่าง แต่เบื้องต้นใช้ข้อมูลที่ตอบกลับมาได้เลย
       alert("✅ บันทึกสถานะเรียบร้อย");
     } catch(e) { 
         alert("Error saving"); 
@@ -114,19 +111,17 @@ export default function OrdersDetail() {
   const onVerifySlip = async () => {
     try {
       const res = await verifySlip(id!);
-      setOrder(res.order); // อัปเดตสถานะออเดอร์ล่าสุด
+      setOrder(res.order); 
       alert(`ตรวจสอบแล้ว: ${res.slipOkResult?.success ? "✅ สลิปถูกต้อง" : "❌ สลิปไม่ผ่าน"}`);
     } catch { 
         alert("เกิดข้อผิดพลาดในการตรวจสอบ"); 
     }
   };
 
-  // ฟังก์ชันคลิกปุ่มอัปโหลด (Trigger Input File)
   const onUploadClick = () => {
     fileInputRef.current?.click();
   };
 
-  // ฟังก์ชันส่งไฟล์สลิปใหม่ (Admin Upload)
   const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -141,10 +136,9 @@ export default function OrdersDetail() {
         setOrder(res.order);
         alert("✅ อัปโหลดสลิปเรียบร้อย");
         
-        // เมื่ออัปโหลดเสร็จ ต้องขอ URL ใหม่ทันที เพราะชื่อไฟล์หรือ Signature เปลี่ยน
         if (res.order.paymentSlipFilename) {
             setSlipError(false);
-            setSlipUrl(""); // Clear old URL เพื่อ UI refresh
+            setSlipUrl(""); 
             fetchSlipUrl(res.order._id);
         }
     } catch (err) {
@@ -157,7 +151,6 @@ export default function OrdersDetail() {
   const onDelete = async () => {
       if(!confirm("⚠️ ยืนยันการลบออเดอร์นี้ถาวร?")) return;
       try {
-          // เรียกใช้ fetch โดยตรง หรือจะสร้าง function deleteOrder ใน api/admin ก็ได้
           await fetch(`${API_URL}/api/orders/${id}`, { 
              method: 'DELETE', 
              headers: { Authorization: `Bearer ${localStorage.getItem("aw_token")}` } 
@@ -167,6 +160,9 @@ export default function OrdersDetail() {
   };
 
   const onPrintAddress = () => {
+      // เพิ่มการเช็ค order กัน error (แม้ TypeScript จะรู้แล้วว่ามีค่า แต่ runtime อาจเป็น null ได้ในเสี้ยววินาที)
+      if (!order) return;
+
       const w = window.open('', '_blank');
       if(w) {
           w.document.write(`
@@ -194,7 +190,6 @@ export default function OrdersDetail() {
 
   return (
     <Box p={{ xs: 2, md: 4 }} maxWidth={1200} mx="auto">
-      {/* Hidden Input สำหรับเลือกไฟล์ */}
       <input type="file" hidden ref={fileInputRef} accept="image/*" onChange={onFileChange} />
 
       <Stack direction="row" justifyContent="space-between" mb={2}>
@@ -202,7 +197,6 @@ export default function OrdersDetail() {
         <Button startIcon={<DeleteForeverIcon />} onClick={onDelete} color="error">ลบออเดอร์</Button>
       </Stack>
 
-      {/* Header Info */}
       <Paper sx={{ p: 3, mb: 4, borderRadius: 3, boxShadow: theme.shadows[2] }}>
           <Stack direction={{ xs:'column', md:'row' }} justifyContent="space-between" alignItems="center" spacing={2}>
             <Box>
@@ -238,7 +232,6 @@ export default function OrdersDetail() {
       </Paper>
 
       <Grid container spacing={3}>
-        {/* ข้อมูลสินค้าและที่อยู่ */}
         <Grid item xs={12} md={8}>
           <Paper sx={{ p: 3, mb: 3, borderRadius: 3 }}>
             <Stack direction="row" alignItems="center" spacing={1} mb={2}>
@@ -247,7 +240,7 @@ export default function OrdersDetail() {
             </Stack>
             <Box sx={{ bgcolor: '#FAFAFA', borderRadius: 2, p: 2 }}>
                 {(order.items || []).map((it: any, i: number) => (
-                <Stack key={i} direction="row" justifyContent="space-between" alignItems="center" mb={1.5} pb={1.5} borderBottom={i < order.items.length-1 ? "1px dashed #ddd" : "none"}>
+                <Stack key={i} direction="row" justifyContent="space-between" alignItems="center" mb={1.5} pb={1.5} borderBottom={i < (order.items?.length || 0)-1 ? "1px dashed #ddd" : "none"}>
                     <Box>
                         <Typography fontWeight={600}>{it.productName}</Typography>
                         <Typography variant="caption" color="text.secondary">ตัวเลือก: {it.size || "-"} {it.color || ""}</Typography>
@@ -290,10 +283,7 @@ export default function OrdersDetail() {
           </Paper>
         </Grid>
 
-        {/* ส่วนจัดการสลิปและสถานะ */}
         <Grid item xs={12} md={4}>
-          
-          {/* การ์ดสลิป */}
           <Paper sx={{ p: 3, mb: 3, borderRadius: 3, border: '1px solid', borderColor: order.paymentStatus==='PAYMENT_CONFIRMED'?'success.light':'divider' }}>
             <Stack direction="row" alignItems="center" justifyContent="space-between" mb={2}>
                  <Typography variant="h6" fontWeight={700}>หลักฐานการโอน</Typography>
@@ -304,7 +294,6 @@ export default function OrdersDetail() {
                  />
             </Stack>
 
-            {/* พื้นที่แสดงรูปสลิปพร้อม Overlay */}
             <Box 
                 sx={{ 
                     position: 'relative', 
@@ -320,7 +309,6 @@ export default function OrdersDetail() {
                     mb: 2
                 }}
             >
-                {/* 1. มีรูปและ URL พร้อม */}
                 {order.paymentSlipFilename && slipUrl && !slipError ? (
                     <Box 
                         sx={{ 
@@ -344,7 +332,6 @@ export default function OrdersDetail() {
                         </Box>
                     </Box>
                 ) : (
-                    // 2. ไม่มีรูป หรือโหลดรูปไม่ได้ (แสดง Overlay)
                     <Box textAlign="center" p={3} sx={{ opacity: 0.6 }}>
                         {order.paymentSlipFilename && slipError ? (
                             <>
@@ -363,14 +350,12 @@ export default function OrdersDetail() {
             </Box>
 
             <Stack spacing={1.5}>
-                {/* ปุ่มตรวจสอบสลิป (แสดงเฉพาะเมื่อมีรูปและไม่ Error) */}
                 {order.paymentSlipFilename && !slipError && (
                     <Button fullWidth variant="outlined" startIcon={<VerifiedIcon />} onClick={onVerifySlip} color={order.slipOkResult?.success ? "success" : "primary"}>
                       {order.slipOkResult?.success ? "ตรวจสอบแล้ว (ผ่าน)" : "ตรวจสอบสลิป (SlipOK)"}
                     </Button>
                 )}
 
-                {/* ปุ่มอัปโหลดสลิป (ช่วยลูกค้า) */}
                 {canUploadSlip && (
                     <Button 
                         fullWidth 
@@ -385,7 +370,6 @@ export default function OrdersDetail() {
             </Stack>
           </Paper>
 
-          {/* การ์ดเปลี่ยนสถานะ */}
           <Paper sx={{ p: 3, borderRadius: 3, bgcolor: alpha(theme.palette.primary.main, 0.05) }}>
             <Typography variant="h6" fontWeight={700} gutterBottom>เปลี่ยนสถานะ</Typography>
             <TextField 
@@ -403,7 +387,6 @@ export default function OrdersDetail() {
         </Grid>
       </Grid>
 
-      {/* Dialog ซูมดูรูปเต็ม */}
       <Dialog open={slipZoom} onClose={()=>setSlipZoom(false)} maxWidth="sm">
           <DialogContent sx={{ p: 0 }}>
               {slipUrl && (
