@@ -435,10 +435,27 @@ exports.getById = async (req, res, next) => {
   try {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    // เช็คสิทธิ์ (LIFF)
     if (req.user?.type === 'liff' && order.customerLineId !== req.user.lineId) {
       return res.status(403).json({ error: 'Forbidden' });
     }
-    res.json(order);
+
+    // 1. แปลงเป็น Object ธรรมดา เพื่อให้เรายัด property 'slipUrl' เพิ่มได้
+    const orderObj = order.toObject();
+
+    // 2. ถ้ามีไฟล์สลิป ให้สร้าง Signed URL
+    if (orderObj.paymentSlipFilename) {
+      // เช็คว่าเป็นเจ้าของออเดอร์หรือไม่?
+      const isOwner = req.user?.type === 'liff' && req.user.lineId === order.customerLineId;
+      
+      // ถ้าเป็นเจ้าของใช้ TTL User, ถ้าไม่ใช่ (Admin) ใช้ TTL Staff
+      const ttl = isOwner ? SLIP_TTL_USER : (SLIP_TTL_STAFF || 300);
+      
+      orderObj.slipUrl = buildSignedUrl(orderObj.paymentSlipFilename, ttl);
+    }
+
+    res.json(orderObj);
   } catch (err) { next(err); }
 };
 
@@ -459,13 +476,27 @@ exports.getSlipFile = async (req, res, next) => {
 
 exports.getAll = async (req, res, next) => {
   try {
-    // ปรับปรุงให้ Sort ล่าสุดขึ้นก่อนเสมอ เพื่อ UX ที่ดี
+    // 1. เพิ่ม .lean() ท้ายสุด เพื่อให้ Mongoose คืนค่าเป็น Plain Object (แก้ไขได้ & เร็วขึ้น)
     const orders = await Order.find()
       .populate('items.product')
-      .sort({ createdAt: -1 });
-    res.json(orders);
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // 2. วนลูปเช็ค: ถ้ามีไฟล์สลิป ให้สร้าง slipUrl (Signed URL) แปะไปด้วย
+    const ordersWithSignedUrl = orders.map(order => {
+      if (order.paymentSlipFilename) {
+        // ใช้ TTL ของ Staff (เช่น 300 วิ หรือตาม config) ในการดูรูป
+        // ถ้าอยากให้นานกว่านี้ แก้ตัวเลขตรงนี้ได้ (หน่วยเป็นวินาที)
+        const ttl = SLIP_TTL_STAFF || 300; 
+        order.slipUrl = buildSignedUrl(order.paymentSlipFilename, ttl);
+      }
+      return order;
+    });
+
+    res.json(ordersWithSignedUrl);
   } catch (err) { next(err); }
 };
+
 
 /* ----------------------- UPDATE (ADMIN) ----------------------- */
 exports.update = async (req, res, next) => {

@@ -19,7 +19,7 @@ import ZoomInIcon from "@mui/icons-material/ZoomIn";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import BrokenImageIcon from "@mui/icons-material/BrokenImage";
 
-// ✅ Import API จากไฟล์ admin.ts ที่ถูกต้อง
+// Import API (ตรวจสอบ path ให้ตรงกับโปรเจ็คจริง)
 import { getOrder, updateOrder, verifySlip, getSlipSignedUrl, retrySlip } from "../../api/admin";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
@@ -59,11 +59,16 @@ export default function OrdersDetail() {
       .then(d => { 
         setOrder(d); 
         setEdit(d); 
-        // ✅ ถ้ามีชื่อไฟล์สลิป ให้ไปขอ Signed URL จาก Server
-        if (d.paymentSlipFilename) {
-          fetchSlipUrl(d._id);
+        
+        // ✅ ปรับปรุง: ใช้ slipUrl ที่ Backend ส่งมาให้เลย (ลด API call)
+        if (d.slipUrl) {
+            setSlipUrl(d.slipUrl); // ใช้ URL ที่มี Signature จาก Backend
+            setSlipError(false);
+        } else if (d.paymentSlipFilename) {
+            // Fallback: ถ้าไม่มี slipUrl มาแต่มีชื่อไฟล์ ค่อยไปขอใหม่
+            fetchSlipUrl(d._id);
         } else {
-          setSlipUrl(""); 
+            setSlipUrl(""); 
         }
       })
       .catch((err) => {
@@ -73,15 +78,16 @@ export default function OrdersDetail() {
       .finally(() => setLoading(false));
   };
 
-  // ✅ ฟังก์ชันขอ URL รูปที่มีลายเซ็น (แก้ 403 Forbidden)
+  // ฟังก์ชันขอ URL รูปใหม่ (ใช้ตอนอัปโหลดสลิปใหม่ หรือรีเฟรช)
   const fetchSlipUrl = async (orderId: string) => {
     setSlipError(false);
     try {
       const result = await getSlipSignedUrl(orderId);
+      // รองรับทั้งแบบ string ตรงๆ หรือ object { url: ... }
       const url = typeof result === 'string' ? result : result?.url;
       
       if (url) {
-        // เติม Domain ข้างหน้าถ้าเป็น Relative Path
+        // ถ้า URL ไม่ได้เริ่มด้วย http (เป็น relative path) ให้เติม Domain API
         const fullUrl = url.startsWith("http") ? url : `${API_URL}${url}`;
         setSlipUrl(fullUrl);
       }
@@ -96,24 +102,31 @@ export default function OrdersDetail() {
     try {
       const res = await updateOrder(id!, { orderStatus: edit.orderStatus, trackingNumber: edit.trackingNumber });
       setOrder(res); 
+      // หลังเซฟ ถ้าสถานะเปลี่ยน อาจจะต้องรีเฟรช logic บางอย่าง แต่เบื้องต้นใช้ข้อมูลที่ตอบกลับมาได้เลย
       alert("✅ บันทึกสถานะเรียบร้อย");
-    } catch(e) { alert("Error saving"); } finally { setSaving(false); }
+    } catch(e) { 
+        alert("Error saving"); 
+    } finally { 
+        setSaving(false); 
+    }
   };
 
   const onVerifySlip = async () => {
     try {
       const res = await verifySlip(id!);
-      setOrder(res.order); 
+      setOrder(res.order); // อัปเดตสถานะออเดอร์ล่าสุด
       alert(`ตรวจสอบแล้ว: ${res.slipOkResult?.success ? "✅ สลิปถูกต้อง" : "❌ สลิปไม่ผ่าน"}`);
-    } catch { alert("เกิดข้อผิดพลาดในการตรวจสอบ"); }
+    } catch { 
+        alert("เกิดข้อผิดพลาดในการตรวจสอบ"); 
+    }
   };
 
-  // ✅ ฟังก์ชันคลิกปุ่มอัปโหลด (Trigger Input File)
+  // ฟังก์ชันคลิกปุ่มอัปโหลด (Trigger Input File)
   const onUploadClick = () => {
     fileInputRef.current?.click();
   };
 
-  // ✅ ฟังก์ชันส่งไฟล์สลิปใหม่ (Admin Upload)
+  // ฟังก์ชันส่งไฟล์สลิปใหม่ (Admin Upload)
   const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -128,10 +141,10 @@ export default function OrdersDetail() {
         setOrder(res.order);
         alert("✅ อัปโหลดสลิปเรียบร้อย");
         
-        // รีเฟรชรูปใหม่ทันที
+        // เมื่ออัปโหลดเสร็จ ต้องขอ URL ใหม่ทันที เพราะชื่อไฟล์หรือ Signature เปลี่ยน
         if (res.order.paymentSlipFilename) {
             setSlipError(false);
-            setSlipUrl(""); // Clear old URL
+            setSlipUrl(""); // Clear old URL เพื่อ UI refresh
             fetchSlipUrl(res.order._id);
         }
     } catch (err) {
@@ -144,6 +157,7 @@ export default function OrdersDetail() {
   const onDelete = async () => {
       if(!confirm("⚠️ ยืนยันการลบออเดอร์นี้ถาวร?")) return;
       try {
+          // เรียกใช้ fetch โดยตรง หรือจะสร้าง function deleteOrder ใน api/admin ก็ได้
           await fetch(`${API_URL}/api/orders/${id}`, { 
              method: 'DELETE', 
              headers: { Authorization: `Bearer ${localStorage.getItem("aw_token")}` } 
@@ -157,6 +171,7 @@ export default function OrdersDetail() {
       if(w) {
           w.document.write(`
             <html>
+                <head><title>Print Label</title></head>
                 <body style="font-family: sans-serif; padding: 40px; text-align: center; border: 2px solid #000; max-width: 500px; margin: 20px auto;">
                     <h2 style="margin-bottom: 20px;">ผู้รับ (To)</h2>
                     <h1 style="font-size: 24px; margin-bottom: 10px;">${order.customerName}</h1>
@@ -164,11 +179,11 @@ export default function OrdersDetail() {
                     <h3 style="margin-top: 20px;">Tel: ${order.customerPhone}</h3>
                     <hr style="margin: 30px 0;" />
                     <p style="font-size: 14px; color: #666;">Order: ${order.orderNo}</p>
+                    <script>window.print();</script>
                 </body>
             </html>
           `);
           w.document.close();
-          w.print();
       }
   };
 
