@@ -15,7 +15,7 @@ import OrderCreate from './pages/OrderCreate.jsx';
 import OrderList from './pages/OrderList.jsx';
 import OrderDetail from './pages/OrderDetail.jsx';
 import UploadSlip from './pages/UploadSlip.jsx';
-import NotFoundPage from "./pages/NotFoundPage";
+import NotFoundPage from "./pages/NotFoundPage.jsx";
 import OnlyInLine from './pages/OnlyInLine.jsx';
 import Checkout from './pages/Checkout.jsx';
 import Me from './pages/Me.jsx';
