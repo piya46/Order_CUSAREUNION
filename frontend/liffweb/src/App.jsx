@@ -15,7 +15,7 @@ import OrderCreate from './pages/OrderCreate.jsx';
 import OrderList from './pages/OrderList.jsx';
 import OrderDetail from './pages/OrderDetail.jsx';
 import UploadSlip from './pages/UploadSlip.jsx';
-import NotFound from './pages/NotFound.jsx';
+import NotFoundPage from "./pages/NotFoundPage";
 import OnlyInLine from './pages/OnlyInLine.jsx';
 import Checkout from './pages/Checkout.jsx';
 import Me from './pages/Me.jsx';
@@ -58,7 +58,7 @@ export default function App() {
                 <Route path="/checkout" element={<Checkout />} />
                 <Route path="/me" element={<Me />} />
 
-                <Route path="*" element={<NotFound />} />
+                <Route path="*" element={<NotFoundPage />} />
               </Routes>
             </AppShell>
           </BrowserRouter>
