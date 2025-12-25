@@ -254,7 +254,7 @@ function ProductCard({ product: p }) {
           loading="lazy"
           decoding="async"
           referrerPolicy="no-referrer"
-          crossOrigin="anonymous"
+          // crossOrigin="anonymous"
           srcSet={buildSrcSet(img)}
           sizes="(max-width:600px) 100vw, (max-width:900px) 50vw, 33vw"
           sx={{ width: '100%', height: '100%', objectFit: 'cover', filter: overlayText ? 'grayscale(10%) brightness(0.92)' : 'none' }}
