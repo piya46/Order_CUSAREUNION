@@ -54,8 +54,14 @@ export async function verifySlip(id: string) {
   return data as { order: Order; slipOkResult?: { success: boolean; message?: string } };
 }
 export async function getSlipSignedUrl(id: string) {
-  const { data } = await api.get(`/orders/${id}/slip-file`);
-  return data?.url as string | undefined;
+  try {
+    // เรียก API เพื่อขอ URL จริงที่มีลายเซ็น
+    const { data } = await api.get(`/orders/${id}/slip-file`);
+    return data; // backend อาจส่งมาเป็น { url: "..." } หรือ string
+  } catch (error) {
+    console.error("Get slip url failed", error);
+    return null;
+  }
 }
 export async function retrySlip(id: string, file: File) {
   const fd = new FormData();
@@ -299,3 +305,4 @@ export async function updateIssue(id: string, payload: Partial<Issue>) {
   const { data } = await api.put(`/issues/${id}`, payload);
   return data as Issue;
 }
+

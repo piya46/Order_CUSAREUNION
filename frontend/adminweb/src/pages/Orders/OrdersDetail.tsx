@@ -1,5 +1,5 @@
 // src/pages/Orders/OrdersDetail.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import {
   Box, Paper, Typography, Stack, Chip, Divider, Button, TextField, MenuItem,
@@ -16,11 +16,13 @@ import SaveIcon from "@mui/icons-material/Save";
 import PrintIcon from "@mui/icons-material/Print";
 import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import ZoomInIcon from "@mui/icons-material/ZoomIn";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import BrokenImageIcon from "@mui/icons-material/BrokenImage";
 
-// ✅ แก้ไข Import ให้ถูกต้อง (admin.ts อยู่ที่ ../../api/admin)
-import { getOrder, updateOrder, verifySlip, getSlipSignedUrl } from "../../api/admin";
+// ✅ Import API จากไฟล์ admin.ts ที่ถูกต้อง
+import { getOrder, updateOrder, verifySlip, getSlipSignedUrl, retrySlip } from "../../api/admin";
 
-const API_URL = import.meta.env.VITE_API_URL || ""; 
+const API_URL = import.meta.env.VITE_API_URL || "";
 
 const STEPS = ["RECEIVED", "PREPARING_ORDER", "SHIPPING", "COMPLETED"];
 const STEP_LABELS: Record<string, string> = { 
@@ -34,41 +36,58 @@ export default function OrdersDetail() {
   const { id } = useParams();
   const nav = useNavigate();
   const theme = useTheme();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [edit, setEdit] = useState<any>({});
   const [saving, setSaving] = useState(false);
-  const [slipZoom, setSlipZoom] = useState(false);
   
-  // ✅ เพิ่ม State สำหรับเก็บ URL สลิปที่มีลายเซ็น
+  // State สำหรับจัดการรูปสลิป
+  const [slipZoom, setSlipZoom] = useState(false);
   const [slipUrl, setSlipUrl] = useState<string>("");
+  const [slipError, setSlipError] = useState(false);
 
+  // โหลดข้อมูลเมื่อเข้าหน้าเว็บ
   useEffect(() => {
+    setLoading(true);
+    fetchOrderData();
+  }, [id]);
+
+  const fetchOrderData = () => {
     getOrder(id!)
       .then(d => { 
         setOrder(d); 
         setEdit(d); 
-        // ✅ เมื่อได้ Order มาแล้ว ให้ไปขอ URL สลิปทันที
+        // ✅ ถ้ามีชื่อไฟล์สลิป ให้ไปขอ Signed URL จาก Server
         if (d.paymentSlipFilename) {
           fetchSlipUrl(d._id);
+        } else {
+          setSlipUrl(""); 
         }
       })
-      .catch(() => nav("/orders"))
+      .catch((err) => {
+        console.error(err);
+        nav("/orders");
+      })
       .finally(() => setLoading(false));
-  }, [id]);
+  };
 
-  // ✅ ฟังก์ชันดึง URL รูปสลิป
+  // ✅ ฟังก์ชันขอ URL รูปที่มีลายเซ็น (แก้ 403 Forbidden)
   const fetchSlipUrl = async (orderId: string) => {
+    setSlipError(false);
     try {
-      const url = await getSlipSignedUrl(orderId);
+      const result = await getSlipSignedUrl(orderId);
+      const url = typeof result === 'string' ? result : result?.url;
+      
       if (url) {
-        // จัดการเรื่อง Path ให้เป็น Absolute URL
+        // เติม Domain ข้างหน้าถ้าเป็น Relative Path
         const fullUrl = url.startsWith("http") ? url : `${API_URL}${url}`;
         setSlipUrl(fullUrl);
       }
     } catch (error) {
-      console.error("Failed to load slip url:", error);
+      console.error("Error fetching slip URL:", error);
+      setSlipError(true);
     }
   };
 
@@ -77,7 +96,7 @@ export default function OrdersDetail() {
     try {
       const res = await updateOrder(id!, { orderStatus: edit.orderStatus, trackingNumber: edit.trackingNumber });
       setOrder(res); 
-      alert("✅ บันทึกสำเร็จ");
+      alert("✅ บันทึกสถานะเรียบร้อย");
     } catch(e) { alert("Error saving"); } finally { setSaving(false); }
   };
 
@@ -86,14 +105,45 @@ export default function OrdersDetail() {
       const res = await verifySlip(id!);
       setOrder(res.order); 
       alert(`ตรวจสอบแล้ว: ${res.slipOkResult?.success ? "✅ สลิปถูกต้อง" : "❌ สลิปไม่ผ่าน"}`);
-    } catch { alert("ตรวจสอบผิดพลาด"); }
+    } catch { alert("เกิดข้อผิดพลาดในการตรวจสอบ"); }
+  };
+
+  // ✅ ฟังก์ชันคลิกปุ่มอัปโหลด (Trigger Input File)
+  const onUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  // ✅ ฟังก์ชันส่งไฟล์สลิปใหม่ (Admin Upload)
+  const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    if (!confirm("ยืนยันการอัปโหลดสลิปนี้แทนลูกค้า?")) {
+        e.target.value = "";
+        return;
+    }
+
+    try {
+        const res = await retrySlip(id!, file);
+        setOrder(res.order);
+        alert("✅ อัปโหลดสลิปเรียบร้อย");
+        
+        // รีเฟรชรูปใหม่ทันที
+        if (res.order.paymentSlipFilename) {
+            setSlipError(false);
+            setSlipUrl(""); // Clear old URL
+            fetchSlipUrl(res.order._id);
+        }
+    } catch (err) {
+        alert("❌ อัปโหลดล้มเหลว");
+    } finally {
+        if(fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
 
   const onDelete = async () => {
       if(!confirm("⚠️ ยืนยันการลบออเดอร์นี้ถาวร?")) return;
       try {
-          // ใช้ api instance จาก lib/axios จะดีกว่า fetch เอง แต่ถ้าจะ fetch เองต้องใส่ token
-          // ในที่นี้ใช้ fetch แบบเดิมตามโค้ดคุณ แต่แนะนำให้ระวังเรื่อง URL
           await fetch(`${API_URL}/api/orders/${id}`, { 
              method: 'DELETE', 
              headers: { Authorization: `Bearer ${localStorage.getItem("aw_token")}` } 
@@ -124,17 +174,20 @@ export default function OrdersDetail() {
 
   if (loading || !order) return <Box p={4}><Skeleton variant="rectangular" height={200} /></Box>;
 
-  const deadline = new Date(new Date(order.createdAt).getTime() + 24 * 60 * 60 * 1000);
-  const isExpired = new Date() > deadline && order.paymentStatus === "WAITING";
   const activeStep = STEPS.indexOf(order.orderStatus);
+  const canUploadSlip = order.orderStatus !== 'CANCELLED' && order.orderStatus !== 'COMPLETED';
 
   return (
     <Box p={{ xs: 2, md: 4 }} maxWidth={1200} mx="auto">
+      {/* Hidden Input สำหรับเลือกไฟล์ */}
+      <input type="file" hidden ref={fileInputRef} accept="image/*" onChange={onFileChange} />
+
       <Stack direction="row" justifyContent="space-between" mb={2}>
         <Button startIcon={<ArrowBackIcon />} component={Link} to="/orders" sx={{ fontWeight: 700, color: 'text.secondary' }}>ย้อนกลับ</Button>
         <Button startIcon={<DeleteForeverIcon />} onClick={onDelete} color="error">ลบออเดอร์</Button>
       </Stack>
 
+      {/* Header Info */}
       <Paper sx={{ p: 3, mb: 4, borderRadius: 3, boxShadow: theme.shadows[2] }}>
           <Stack direction={{ xs:'column', md:'row' }} justifyContent="space-between" alignItems="center" spacing={2}>
             <Box>
@@ -170,6 +223,7 @@ export default function OrdersDetail() {
       </Paper>
 
       <Grid container spacing={3}>
+        {/* ข้อมูลสินค้าและที่อยู่ */}
         <Grid item xs={12} md={8}>
           <Paper sx={{ p: 3, mb: 3, borderRadius: 3 }}>
             <Stack direction="row" alignItems="center" spacing={1} mb={2}>
@@ -221,7 +275,10 @@ export default function OrdersDetail() {
           </Paper>
         </Grid>
 
+        {/* ส่วนจัดการสลิปและสถานะ */}
         <Grid item xs={12} md={4}>
+          
+          {/* การ์ดสลิป */}
           <Paper sx={{ p: 3, mb: 3, borderRadius: 3, border: '1px solid', borderColor: order.paymentStatus==='PAYMENT_CONFIRMED'?'success.light':'divider' }}>
             <Stack direction="row" alignItems="center" justifyContent="space-between" mb={2}>
                  <Typography variant="h6" fontWeight={700}>หลักฐานการโอน</Typography>
@@ -232,48 +289,88 @@ export default function OrdersDetail() {
                  />
             </Stack>
 
-            {order.paymentSlipFilename ? (
-              <Box>
-                <Box 
-                    sx={{ 
-                        position: 'relative', 
-                        cursor: 'pointer', 
-                        borderRadius: 2, 
-                        overflow: 'hidden',
-                        border: '1px solid #eee',
-                        '&:hover .overlay': { opacity: 1 }
-                    }}
-                    onClick={()=>setSlipZoom(true)}
-                >
-                    {/* ✅ ใช้ slipUrl ที่ได้จาก getSlipSignedUrl แทน */}
-                    {slipUrl ? (
-                      <img src={slipUrl} alt="slip" style={{ width: "100%", display: 'block' }} />
-                    ) : (
-                      <Skeleton variant="rectangular" height={200} />
-                    )}
-                    
-                    <Box className="overlay" sx={{ 
-                        position: 'absolute', inset: 0, bgcolor: 'rgba(0,0,0,0.3)', 
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        opacity: 0, transition: 'opacity 0.2s' 
-                    }}>
-                        <ZoomInIcon sx={{ color: 'white', fontSize: 40 }} />
+            {/* พื้นที่แสดงรูปสลิปพร้อม Overlay */}
+            <Box 
+                sx={{ 
+                    position: 'relative', 
+                    borderRadius: 2, 
+                    overflow: 'hidden',
+                    border: '1px solid #eee',
+                    minHeight: 250,
+                    bgcolor: '#f5f5f5',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    mb: 2
+                }}
+            >
+                {/* 1. มีรูปและ URL พร้อม */}
+                {order.paymentSlipFilename && slipUrl && !slipError ? (
+                    <Box 
+                        sx={{ 
+                            position: 'relative', width: '100%', height: '100%', cursor: 'pointer', 
+                            '&:hover .overlay': { opacity: 1 } 
+                        }} 
+                        onClick={()=>setSlipZoom(true)}
+                    >
+                        <img 
+                            src={slipUrl} 
+                            alt="slip" 
+                            style={{ width: "100%", display: 'block', minHeight: 250, objectFit: 'contain', background: '#fff' }} 
+                            onError={()=>setSlipError(true)} 
+                        />
+                        <Box className="overlay" sx={{ 
+                            position: 'absolute', inset: 0, bgcolor: 'rgba(0,0,0,0.3)', 
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            opacity: 0, transition: 'opacity 0.2s' 
+                        }}>
+                            <ZoomInIcon sx={{ color: 'white', fontSize: 40 }} />
+                        </Box>
                     </Box>
-                </Box>
+                ) : (
+                    // 2. ไม่มีรูป หรือโหลดรูปไม่ได้ (แสดง Overlay)
+                    <Box textAlign="center" p={3} sx={{ opacity: 0.6 }}>
+                        {order.paymentSlipFilename && slipError ? (
+                            <>
+                                <BrokenImageIcon sx={{ fontSize: 60, mb: 1, color: 'error.main' }} />
+                                <Typography fontWeight="bold" color="error">โหลดรูปไม่สำเร็จ</Typography>
+                                <Typography variant="caption">ลิงก์อาจหมดอายุหรือไฟล์เสียหาย</Typography>
+                            </>
+                        ) : (
+                            <>
+                                <AccessTimeIcon sx={{ fontSize: 60, mb: 1 }} />
+                                <Typography fontWeight="bold">ยังไม่ได้อัปโหลดสลิป</Typography>
+                            </>
+                        )}
+                    </Box>
+                )}
+            </Box>
 
-                <Button fullWidth variant="outlined" startIcon={<VerifiedIcon />} onClick={onVerifySlip} sx={{ mt: 2 }} color={order.slipOkResult?.success ? "success" : "primary"}>
-                  {order.slipOkResult?.success ? "ตรวจสอบแล้ว (ผ่าน)" : "ตรวจสอบสลิป (SlipOK)"}
-                </Button>
-              </Box>
-            ) : (
-               <Box textAlign="center" py={4} bgcolor="#F5F5F5" borderRadius={2}>
-                   <AccessTimeIcon sx={{ fontSize: 40, color: 'text.secondary', mb: 1 }} />
-                   <Typography color="text.secondary">ยังไม่มีการแนบสลิป</Typography>
-                   {isExpired && <Typography color="error" variant="caption">หมดเวลาชำระเงินแล้ว</Typography>}
-               </Box>
-            )}
+            <Stack spacing={1.5}>
+                {/* ปุ่มตรวจสอบสลิป (แสดงเฉพาะเมื่อมีรูปและไม่ Error) */}
+                {order.paymentSlipFilename && !slipError && (
+                    <Button fullWidth variant="outlined" startIcon={<VerifiedIcon />} onClick={onVerifySlip} color={order.slipOkResult?.success ? "success" : "primary"}>
+                      {order.slipOkResult?.success ? "ตรวจสอบแล้ว (ผ่าน)" : "ตรวจสอบสลิป (SlipOK)"}
+                    </Button>
+                )}
+
+                {/* ปุ่มอัปโหลดสลิป (ช่วยลูกค้า) */}
+                {canUploadSlip && (
+                    <Button 
+                        fullWidth 
+                        variant="contained" 
+                        color="warning" 
+                        startIcon={<CloudUploadIcon />}
+                        onClick={onUploadClick}
+                    >
+                        {order.paymentSlipFilename ? "เปลี่ยนรูปสลิป" : "อัปโหลดสลิปให้ลูกค้า"}
+                    </Button>
+                )}
+            </Stack>
           </Paper>
 
+          {/* การ์ดเปลี่ยนสถานะ */}
           <Paper sx={{ p: 3, borderRadius: 3, bgcolor: alpha(theme.palette.primary.main, 0.05) }}>
             <Typography variant="h6" fontWeight={700} gutterBottom>เปลี่ยนสถานะ</Typography>
             <TextField 
@@ -291,10 +388,9 @@ export default function OrdersDetail() {
         </Grid>
       </Grid>
 
-      {/* Slip Zoom Dialog */}
+      {/* Dialog ซูมดูรูปเต็ม */}
       <Dialog open={slipZoom} onClose={()=>setSlipZoom(false)} maxWidth="sm">
           <DialogContent sx={{ p: 0 }}>
-              {/* ✅ ใช้ slipUrl ใน Dialog ด้วย */}
               {slipUrl && (
                   <img src={slipUrl} alt="slip full" style={{ width: "100%" }} />
               )}
