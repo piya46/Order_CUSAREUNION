@@ -1,3 +1,4 @@
+// src/api/admin.ts
 import api from '../lib/axios';
 
 /* ============================ Auth ============================ */
@@ -16,6 +17,7 @@ export async function verifyMyPassword(password: string) {
 export type OrderItem = { productName: string; size?: string; color?: string; price: number; quantity: number };
 export type StatusTimelineEntry = { at?: string; action: string; note?: string; by?: string; role?: string };
 
+// ✅ แก้ไข: เพิ่ม slipUrl และ slipOkResult ใน Type หลัก
 export type Order = {
   _id: string;
   orderNo: string;
@@ -32,6 +34,13 @@ export type Order = {
   trackingNumber?: string;
   slipReviewCount?: number;
   paymentSlipFilename?: string;
+  
+  // ✅ เพิ่ม field นี้เพื่อให้ TypeScript รู้จัก Signed URL
+  slipUrl?: string; 
+  
+  // ✅ เพิ่ม field นี้เผื่อไว้แสดงผลการตรวจสอบ
+  slipOkResult?: { success: boolean; message?: string };
+
   statusTimeline?: StatusTimelineEntry[];
   createdAt: string;
   updatedAt?: string;
@@ -129,7 +138,6 @@ export async function listSuppliers() {
   return Array.isArray(data) ? data as Supplier[] : [];
 }
 
-// ✅ เพิ่ม: ดึงข้อมูล Supplier รายคน
 export async function getSupplier(id: string) {
   const { data } = await api.get(`/suppliers/${id}`);
   return data as Supplier;
@@ -140,13 +148,11 @@ export async function createSupplier(body: Partial<Supplier>) {
   return data as Supplier;
 }
 
-// ✅ เพิ่ม: แก้ไข Supplier
 export async function updateSupplier(id: string, body: Partial<Supplier>) {
   const { data } = await api.put(`/suppliers/${id}`, body);
   return data as Supplier;
 }
 
-// ✅ เพิ่ม: ลบ Supplier
 export async function deleteSupplier(id: string) {
   const { data } = await api.delete(`/suppliers/${id}`);
   return data as { success: boolean; message?: string };
@@ -305,4 +311,3 @@ export async function updateIssue(id: string, payload: Partial<Issue>) {
   const { data } = await api.put(`/issues/${id}`, payload);
   return data as Issue;
 }
-
