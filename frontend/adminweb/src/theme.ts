@@ -1,5 +1,25 @@
-// src/theme.ts
 import { createTheme } from '@mui/material/styles';
+
+declare module '@mui/material/styles' {
+  interface Palette {
+    status: {
+      pending: string;
+      processing: string;
+      completed: string;
+      cancelled: string;
+      backorder: string;
+    };
+  }
+  interface PaletteOptions {
+    status?: {
+      pending?: string;
+      processing?: string;
+      completed?: string;
+      cancelled?: string;
+      backorder?: string;
+    };
+  }
+}
 
 const theme = createTheme({
   palette: {

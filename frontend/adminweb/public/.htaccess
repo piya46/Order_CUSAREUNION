@@ -1,0 +1,16 @@
+# file: /seller.cusa.pstpyst.com/liffweb/dist/.htaccess
+PassengerEnabled off
+
+Options -Indexes -MultiViews
+RewriteEngine On
+
+# ถ้าไฟล์/โฟลเดอร์มีจริง ให้เสิร์ฟตรง (asset ของ React)
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# ที่เหลือโยนให้ SPA
+RewriteRule . /index.html [L]
+
+# MIME ของ SVG ให้ถูกต้อง
+AddType image/svg+xml .svg

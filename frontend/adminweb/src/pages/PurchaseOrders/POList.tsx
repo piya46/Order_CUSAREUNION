@@ -428,7 +428,7 @@ export default function POList() {
                     <Card variant="outlined">
                         <CardContent sx={{ py: 2 }}>
                             <Typography variant="caption" color="text.secondary">ORDER DATE</Typography>
-                            <Typography variant="subtitle1" fontWeight={600}><EventIcon fontSize="inherit" sx={{mr:0.5, verticalAlign:'middle'}}/>{formatDate(selectedPO.orderDate)}</Typography>
+                            <Typography variant="subtitle1" fontWeight={600}><EventIcon fontSize="inherit" sx={{mr:0.5, verticalAlign:'middle'}}/>{formatDate(selectedPO.orderDate || "")}</Typography>
                         </CardContent>
                     </Card>
                 </Grid>

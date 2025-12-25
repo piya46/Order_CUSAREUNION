@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { parseJwt, isAdminTokenValid } from '../lib/jwt';
+import { parseJwt, isAdminTokenValid, isTokenUsable } from '../lib/jwt';
 
 export function useAdminAuth() {
   const [ready, setReady] = useState(false);
@@ -9,7 +9,10 @@ export function useAdminAuth() {
   useEffect(() => {
     const t = localStorage.getItem('admin_token');
     setToken(t);
-    setClaims(parseJwt(t));
+    // ✅ เช็คก่อนว่า t มีค่าหรือไม่ (แก้ Error TS2345)
+    if (t) {
+      setClaims(parseJwt(t));
+    }
     setReady(true);
   }, []);
 
@@ -34,7 +37,7 @@ export function useAdminAuth() {
     ready,
     token,
     claims,
-    isLoggedIn: isTokenUsable(token),
+    isLoggedIn: isTokenUsable(token), // ✅ ตอนนี้ใช้งานได้แล้วเพราะ import มาแล้ว
     roles: claims?.roles || (claims?.role ? [claims.role] : []),
     login,
     logout,

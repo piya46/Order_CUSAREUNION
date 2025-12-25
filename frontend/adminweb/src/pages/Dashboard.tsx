@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Box, Grid, Paper, Stack, Typography, Chip, Divider, Skeleton, Button,
-  Alert, Tooltip, IconButton, LinearProgress, List, ListItem, ListItemText, ListItemIcon
+  Alert, Tooltip, IconButton, LinearProgress, List, ListItem, ListItemText, ListItemIcon, ListItemButton
 } from "@mui/material";
 
 // Icons
@@ -301,7 +301,7 @@ export default function Dashboard() {
                         <YAxis tick={{fontSize: 12}} axisLine={false} tickLine={false} />
                         <RechartsTooltip 
                             contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 8px 24px rgba(0,0,0,0.1)' }}
-                            formatter={(value:number) => [`฿${value.toLocaleString()}`, 'ยอดขาย']}
+                            formatter={(value: any) => [`฿${(value || 0).toLocaleString()}`, 'ยอดขาย']}
                         />
                         <Area type="monotone" dataKey="value" stroke="#FFB300" strokeWidth={4} fillOpacity={1} fill="url(#colorValue)" />
                       </AreaChart>
@@ -376,22 +376,28 @@ export default function Dashboard() {
                     <Typography fontWeight={800}>🛒 ออเดอร์ล่าสุด</Typography>
                 </Box>
                 <List dense sx={{ maxHeight: 300, overflow: 'auto' }}>
-                    {loading ? <Box p={2}><Skeleton count={3}/></Box> : kpi.latest.map(o => (
+                   {loading ? (
+                    <Box p={2}>
+                      <Skeleton />
+                      <Skeleton />
+                      <Skeleton />
+                    </Box>
+                    ) : kpi.latest.map(o => (
                         <ListItem
                             key={o._id}
-                            button
-                            component={Link}
-                            to={`/orders/${o._id}`}
+                            disablePadding
                             divider
                         >
-                            <ListItemText
-                                primary={<Stack direction="row" spacing={1} alignItems="center">
-                                    <Typography fontWeight={700} fontSize="0.9rem">{o.orderNo}</Typography>
-                                    <Chip size="small" label={o.orderStatus} sx={{ height: 20, fontSize: '0.65rem' }} />
-                                </Stack>}
-                                secondary={`${o.customerName} • ฿${o.totalAmount.toLocaleString()}`}
-                            />
-                            <ArrowForwardIcon fontSize="small" color="action" />
+                            <ListItemButton component={Link} to={`/orders/${o._id}`}>
+                              <ListItemText
+                                  primary={<Stack direction="row" spacing={1} alignItems="center">
+                                      <Typography fontWeight={700} fontSize="0.9rem">{o.orderNo}</Typography>
+                                      <Chip size="small" label={o.orderStatus} sx={{ height: 20, fontSize: '0.65rem' }} />
+                                  </Stack>}
+                                  secondary={`${o.customerName} • ฿${o.totalAmount.toLocaleString()}`}
+                              />
+                              <ArrowForwardIcon fontSize="small" color="action" />
+                            </ListItemButton>
                         </ListItem>
                     ))}
                     {!loading && kpi.latest.length === 0 && <Box p={2} textAlign="center">ไม่มีข้อมูล</Box>}

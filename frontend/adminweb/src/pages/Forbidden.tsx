@@ -18,8 +18,8 @@ export default function Forbidden() {
   };
 
   const copyUserId = () => {
-    if (user?._id || user?.username) {
-      navigator.clipboard.writeText(user.username || user._id);
+    if ((user as any)?._id || user?.username) {
+      navigator.clipboard.writeText(user.username || (user as any)._id);
       alert("คัดลอก User ID เรียบร้อย (ส่งให้ Admin ตรวจสอบได้เลย)");
     }
   };

@@ -326,7 +326,12 @@ export default function OrdersList() {
                      </TableCell>
                      <TableCell>
                        <Typography variant="body2" fontWeight={600}>{r.customerName}</Typography>
-                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', maxWidth: 150, noWrap: true, textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                       <Typography
+    variant="caption"
+    color="text.secondary"
+    noWrap // <--- ย้ายมาตรงนี้
+    sx={{ display: 'block', maxWidth: 150, textOverflow: 'ellipsis', overflow: 'hidden' }} // <--- ลบ noWrap: true ในนี้ออก
+>
                            {(r.items||[]).length} รายการ
                        </Typography>
                      </TableCell>

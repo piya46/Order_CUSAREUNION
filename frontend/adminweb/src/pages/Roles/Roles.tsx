@@ -266,8 +266,8 @@ export default function Roles() {
                                 variant="outlined"
                                 sx={{ 
                                     fontWeight: 600, 
-                                    bgcolor: alpha(theme.palette[group?.color as any || "primary"].main, 0.05),
-                                    borderColor: alpha(theme.palette[group?.color as any || "primary"].main, 0.3)
+                                    bgcolor: alpha((theme.palette as any)[group?.color || "primary"].main, 0.05),
+                                    borderColor: alpha((theme.palette as any)[group?.color || "primary"].main, 0.3)
                                 }}
                             />
                             );
@@ -338,11 +338,10 @@ export default function Roles() {
                         
                         return (
                             <Grid item xs={12} md={6} key={group.category}>
-                                <Card variant="outlined" sx={{ borderRadius: 3, height: '100%', borderColor: alpha(theme.palette[group.color as any].main, 0.3) }}>
-                                    <Box 
+<Card variant="outlined" sx={{ borderRadius: 3, height: '100%', borderColor: alpha((theme.palette as any)[group.color].main, 0.3) }}>                                    <Box 
                                         sx={{ 
                                             px: 2, py: 1.5, 
-                                            bgcolor: alpha(theme.palette[group.color as any].main, 0.1),
+                                            bgcolor: alpha((theme.palette as any)[group.color].main, 0.1),
                                             display: 'flex', justifyContent: 'space-between', alignItems: 'center'
                                         }}
                                     >

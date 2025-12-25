@@ -1,10 +1,11 @@
+// src/pages/Issues/Issues.tsx
 import { useEffect, useState } from "react";
 import { 
   Box, Paper, Typography, Button, Chip, Dialog, TextField, Stack, 
   MenuItem, Grid, Autocomplete, CircularProgress, Card 
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
-// Import API เพิ่มเติม
+// Import API เพิ่มเติม (ตรวจสอบ path ให้ถูกต้องตามโครงสร้างโปรเจกต์ของคุณ)
 import { listIssues, createIssue, updateIssue, listOrders, listInventory } from "../../api/admin"; 
 import { Issue } from "../../types";
 
@@ -63,7 +64,7 @@ export default function Issues() {
   const load = async () => {
     try {
       const data = await listIssues();
-      setIssues(data);
+      setIssues(data as any);
     } catch (error) {
       console.error("Failed to load issues", error);
     }
@@ -82,13 +83,13 @@ export default function Issues() {
       try {
         if (createForm.refType === "ORDER") {
           const orders = await listOrders();
-          setRefOptions(orders.map(o => ({ 
+          setRefOptions(orders.map((o: any) => ({ 
             label: `${o.orderNo} (${o.customerName})`, 
             value: o.orderNo 
           })));
         } else if (createForm.refType === "PRODUCT") {
           const products = await listInventory();
-          setRefOptions(products.map(p => ({ 
+          setRefOptions(products.map((p: any) => ({ 
             label: p.name, 
             value: p._id 
           })));
@@ -125,14 +126,14 @@ export default function Issues() {
     setOpenEdit(true);
   };
 
-  const handleUpdate = async () => {
+ const handleUpdate = async () => {
     if (!editForm) return;
     try {
       await updateIssue(editForm.id, {
         status: editForm.status as any,
         priority: editForm.priority as any,
-        adminComment: editForm.adminComment
-      });
+        adminComment: (editForm as any).adminComment
+      } as any); 
       setOpenEdit(false);
       load();
     } catch (error) {
