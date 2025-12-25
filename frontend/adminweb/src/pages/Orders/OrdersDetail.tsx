@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import {
   Box, Paper, Typography, Stack, Chip, Divider, Button, TextField, MenuItem,
-  Alert, Grid, Skeleton, IconButton, Stepper, Step, StepLabel, Card, CardContent,
+  Alert, Grid, Skeleton, Stepper, Step, StepLabel, Card, CardContent,
   Dialog, DialogContent, useTheme, alpha
 } from "@mui/material";
 
@@ -13,13 +13,14 @@ import VerifiedIcon from "@mui/icons-material/Verified";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import SaveIcon from "@mui/icons-material/Save";
-import ChatIcon from "@mui/icons-material/Chat";
 import PrintIcon from "@mui/icons-material/Print";
 import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import ZoomInIcon from "@mui/icons-material/ZoomIn";
 
-import { getOrder, updateOrder, verifySlip } from "../../api/admin";
-const API = import.meta.env.VITE_API_URL || "/api";
+// ✅ แก้ไข Import ให้ถูกต้อง (admin.ts อยู่ที่ ../../api/admin)
+import { getOrder, updateOrder, verifySlip, getSlipSignedUrl } from "../../api/admin";
+
+const API_URL = import.meta.env.VITE_API_URL || ""; 
 
 const STEPS = ["RECEIVED", "PREPARING_ORDER", "SHIPPING", "COMPLETED"];
 const STEP_LABELS: Record<string, string> = { 
@@ -39,10 +40,37 @@ export default function OrdersDetail() {
   const [edit, setEdit] = useState<any>({});
   const [saving, setSaving] = useState(false);
   const [slipZoom, setSlipZoom] = useState(false);
+  
+  // ✅ เพิ่ม State สำหรับเก็บ URL สลิปที่มีลายเซ็น
+  const [slipUrl, setSlipUrl] = useState<string>("");
 
   useEffect(() => {
-    getOrder(id!).then(d => { setOrder(d); setEdit(d); }).catch(()=>nav("/orders")).finally(() => setLoading(false));
+    getOrder(id!)
+      .then(d => { 
+        setOrder(d); 
+        setEdit(d); 
+        // ✅ เมื่อได้ Order มาแล้ว ให้ไปขอ URL สลิปทันที
+        if (d.paymentSlipFilename) {
+          fetchSlipUrl(d._id);
+        }
+      })
+      .catch(() => nav("/orders"))
+      .finally(() => setLoading(false));
   }, [id]);
+
+  // ✅ ฟังก์ชันดึง URL รูปสลิป
+  const fetchSlipUrl = async (orderId: string) => {
+    try {
+      const url = await getSlipSignedUrl(orderId);
+      if (url) {
+        // จัดการเรื่อง Path ให้เป็น Absolute URL
+        const fullUrl = url.startsWith("http") ? url : `${API_URL}${url}`;
+        setSlipUrl(fullUrl);
+      }
+    } catch (error) {
+      console.error("Failed to load slip url:", error);
+    }
+  };
 
   const onSave = async () => {
     setSaving(true);
@@ -64,7 +92,9 @@ export default function OrdersDetail() {
   const onDelete = async () => {
       if(!confirm("⚠️ ยืนยันการลบออเดอร์นี้ถาวร?")) return;
       try {
-          await fetch(`${API}/orders/${id}`, { 
+          // ใช้ api instance จาก lib/axios จะดีกว่า fetch เอง แต่ถ้าจะ fetch เองต้องใส่ token
+          // ในที่นี้ใช้ fetch แบบเดิมตามโค้ดคุณ แต่แนะนำให้ระวังเรื่อง URL
+          await fetch(`${API_URL}/api/orders/${id}`, { 
              method: 'DELETE', 
              headers: { Authorization: `Bearer ${localStorage.getItem("aw_token")}` } 
           });
@@ -94,7 +124,6 @@ export default function OrdersDetail() {
 
   if (loading || !order) return <Box p={4}><Skeleton variant="rectangular" height={200} /></Box>;
 
-  // Deadline Calculation
   const deadline = new Date(new Date(order.createdAt).getTime() + 24 * 60 * 60 * 1000);
   const isExpired = new Date() > deadline && order.paymentStatus === "WAITING";
   const activeStep = STEPS.indexOf(order.orderStatus);
@@ -106,7 +135,6 @@ export default function OrdersDetail() {
         <Button startIcon={<DeleteForeverIcon />} onClick={onDelete} color="error">ลบออเดอร์</Button>
       </Stack>
 
-      {/* Header Info */}
       <Paper sx={{ p: 3, mb: 4, borderRadius: 3, boxShadow: theme.shadows[2] }}>
           <Stack direction={{ xs:'column', md:'row' }} justifyContent="space-between" alignItems="center" spacing={2}>
             <Box>
@@ -118,13 +146,11 @@ export default function OrdersDetail() {
             </Box>
             <Stack direction="row" spacing={1.5}>
                 <Button variant="outlined" startIcon={<PrintIcon />} onClick={onPrintAddress}>พิมพ์ใบปะหน้า</Button>
-                {/* <Button variant="contained" startIcon={<ChatIcon />} disabled={!order.customerLineId}>ส่งข้อความ</Button> */}
             </Stack>
           </Stack>
 
           <Divider sx={{ my: 3 }} />
 
-          {/* Stepper Status */}
           <Box px={{ xs:0, md:4 }}>
               <Stepper activeStep={activeStep >= 0 ? activeStep : 0} alternativeLabel>
                   {STEPS.map((label) => (
@@ -144,7 +170,6 @@ export default function OrdersDetail() {
       </Paper>
 
       <Grid container spacing={3}>
-        {/* Left: Items & Shipping */}
         <Grid item xs={12} md={8}>
           <Paper sx={{ p: 3, mb: 3, borderRadius: 3 }}>
             <Stack direction="row" alignItems="center" spacing={1} mb={2}>
@@ -196,10 +221,7 @@ export default function OrdersDetail() {
           </Paper>
         </Grid>
 
-        {/* Right: Payment & Status */}
         <Grid item xs={12} md={4}>
-          
-          {/* Slip Card */}
           <Paper sx={{ p: 3, mb: 3, borderRadius: 3, border: '1px solid', borderColor: order.paymentStatus==='PAYMENT_CONFIRMED'?'success.light':'divider' }}>
             <Stack direction="row" alignItems="center" justifyContent="space-between" mb={2}>
                  <Typography variant="h6" fontWeight={700}>หลักฐานการโอน</Typography>
@@ -223,7 +245,13 @@ export default function OrdersDetail() {
                     }}
                     onClick={()=>setSlipZoom(true)}
                 >
-                    <img src={`${import.meta.env.VITE_API_URL}/files/${order.paymentSlipFilename}`} alt="slip" style={{ width: "100%", display: 'block' }} />
+                    {/* ✅ ใช้ slipUrl ที่ได้จาก getSlipSignedUrl แทน */}
+                    {slipUrl ? (
+                      <img src={slipUrl} alt="slip" style={{ width: "100%", display: 'block' }} />
+                    ) : (
+                      <Skeleton variant="rectangular" height={200} />
+                    )}
+                    
                     <Box className="overlay" sx={{ 
                         position: 'absolute', inset: 0, bgcolor: 'rgba(0,0,0,0.3)', 
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -246,7 +274,6 @@ export default function OrdersDetail() {
             )}
           </Paper>
 
-          {/* Status Actions */}
           <Paper sx={{ p: 3, borderRadius: 3, bgcolor: alpha(theme.palette.primary.main, 0.05) }}>
             <Typography variant="h6" fontWeight={700} gutterBottom>เปลี่ยนสถานะ</Typography>
             <TextField 
@@ -267,8 +294,9 @@ export default function OrdersDetail() {
       {/* Slip Zoom Dialog */}
       <Dialog open={slipZoom} onClose={()=>setSlipZoom(false)} maxWidth="sm">
           <DialogContent sx={{ p: 0 }}>
-              {order.paymentSlipFilename && (
-                  <img src={`${import.meta.env.VITE_API_URL}/files/${order.paymentSlipFilename}`} alt="slip full" style={{ width: "100%" }} />
+              {/* ✅ ใช้ slipUrl ใน Dialog ด้วย */}
+              {slipUrl && (
+                  <img src={slipUrl} alt="slip full" style={{ width: "100%" }} />
               )}
           </DialogContent>
       </Dialog>
