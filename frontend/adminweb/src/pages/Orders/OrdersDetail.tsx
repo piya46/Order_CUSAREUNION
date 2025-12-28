@@ -56,16 +56,26 @@ export default function OrdersDetail() {
     fetchOrderData();
   }, [id]);
 
-  const fetchOrderData = () => {
+ const fetchOrderData = () => {
     getOrder(id!)
       .then(d => { 
         setOrder(d); 
         setEdit(d); 
         
+        // ✅ FIX: เช็คและแก้ไข Domain ไม่ว่า URL จะมาจากไหน
         if (d.slipUrl) {
-            setSlipUrl(d.slipUrl);
+            // 1. แกะ Path ออกมาจาก URL ที่ได้จาก DB
+            const urlObj = new URL(d.slipUrl, window.location.origin);
+            const pathAndQuery = urlObj.pathname + urlObj.search;
+            
+            // 2. บังคับใช้ Domain API ที่ถูกต้อง (TARGET_API_ORIGIN)
+            const finalUrl = `${TARGET_API_ORIGIN}${pathAndQuery}`;
+            
+            console.log("✅ Fixed DB Slip URL:", finalUrl);
+            setSlipUrl(finalUrl);
             setSlipError(false);
         } else if (d.paymentSlipFilename) {
+            // ถ้าไม่มี URL แต่มีชื่อไฟล์ ให้ไปสร้าง URL ใหม่ (ซึ่งเราแก้ Logic ไว้แล้ว)
             fetchSlipUrl(d._id);
         } else {
             setSlipUrl(""); 
