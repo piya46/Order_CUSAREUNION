@@ -77,43 +77,44 @@ export default function OrdersDetail() {
   };
 
 // ดึงค่าจาก .env
-  const API_URL = import.meta.env.VITE_API_URL || "";
+const API_URL = import.meta.env.VITE_API_URL || "https://api.cusa.sellers.pstpyst.com/api";
 
-  const fetchSlipUrl = async (orderId: string) => {
+const fetchSlipUrl = async (orderId: string) => {
     setSlipError(false);
     try {
       const result = await getSlipSignedUrl(orderId);
       const rawUrl = typeof result === 'string' ? result : result?.url;
       
       if (rawUrl) {
-        // 1. แปลง URL ที่ได้จาก Backend ให้เป็น Object เพื่อแยกส่วนประกอบ
-        // (ใส่ window.location.origin ไว้เป็น base เผื่อ backend ส่งมาแค่ relative path กัน error)
+        // 1. แกะ Path จาก URL ที่ได้จาก Backend
+        // (ใส่ window.location.origin เป็น base เผื่อ backend ส่งมาแค่ /api/files/...)
         const urlObj = new URL(rawUrl, window.location.origin);
         
-        // 2. ดึง Path และ Query String ออกมา (เช่น /api/files/xxx.jpg?sig=...)
-        // จาก Log ของคุณ Path คือ /api/files/...
+        // 2. ดึง Path และ Query String (เช่น /api/files/xxx.jpg?sig=...)
         const pathAndQuery = urlObj.pathname + urlObj.search;
 
-        // 3. เตรียม Domain ปลายทางจาก .env
-        // .env ของคุณคือ: https://api.cusa.sellers.pstpyst.com/api
-        // เราต้องการแค่ "https://api.cusa.sellers.pstpyst.com" (Origin)
-        // เพราะใน pathAndQuery มี /api ติดมาอยู่แล้ว
-        let targetOrigin = API_URL;
-        
+        // 3. เตรียม Base Domain จาก API_URL ที่เรากำหนดไว้
+        let targetOrigin = "";
         try {
-            // พยายามแกะ Origin จาก .env (จะได้ https://api.cusa.sellers.pstpyst.com)
+            // พยายามดึง Origin (เช่น https://api.cusa.sellers.pstpyst.com)
             const envUrlObj = new URL(API_URL);
             targetOrigin = envUrlObj.origin; 
         } catch (e) {
-            // กรณี .env ไม่ใช่ URL เต็มรูปแบบ ให้ใช้ logic เดิม หรือปล่อยผ่าน
-            // แต่เคสของคุณ .env ถูกต้อง มันจะเข้า try block แน่นอน
-            targetOrigin = API_URL.replace(/\/api\/?$/, ""); // fallback ตัด /api ท้ายออก
+            // กันพลาด ถ้า API_URL ไม่ใช่ URL ที่ถูกต้อง
+            console.error("Invalid API_URL format", API_URL);
+            // fallback ไปใช้ค่า string ตรงๆ โดยตัด /api ท้ายออกถ้ามี
+            targetOrigin = API_URL.replace(/\/api\/?$/, ""); 
         }
 
-        // 4. รวมร่าง: Domain ที่ถูก (.env) + Path ที่ได้จาก Backend
-        // ผลลัพธ์: https://api.cusa.sellers.pstpyst.com/api/files/...
-        const finalUrl = `${targetOrigin}${pathAndQuery}`;
+        // 4. ประกอบร่าง (ระวังเรื่อง /api ซ้อนกัน)
+        // ถ้า pathAndQuery เริ่มต้นด้วย /api แล้ว targetOrigin จบด้วย /api หรือไม่?
+        // ปกติ Origin (host) จะไม่มี path ต่อท้าย ดังนั้นเอามาต่อกันได้เลย
         
+        // แต่เพื่อความชัวร์ที่สุด เราจะสร้าง URL ใหม่จาก Origin ที่ถูกต้อง
+        const finalUrlObj = new URL(pathAndQuery, targetOrigin);
+        const finalUrl = finalUrlObj.href;
+        
+        console.log("✅ Fixed Slip URL:", finalUrl); // ดู Log นี้ใน Console Browser
         setSlipUrl(finalUrl);
       }
     } catch (error) {
