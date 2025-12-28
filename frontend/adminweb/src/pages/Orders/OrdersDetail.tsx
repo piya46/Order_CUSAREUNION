@@ -22,8 +22,9 @@ import BrokenImageIcon from "@mui/icons-material/BrokenImage";
 // Import API
 import { getOrder, updateOrder, verifySlip, getSlipSignedUrl, retrySlip, Order } from "../../api/admin";
 
-// ✅ CONFIG: ใช้ค่าจาก Env เป็นหลัก (ใส่ Default ไว้กันเหนียว)
-const API_URL = import.meta.env.VITE_API_URL || "https://api.cusa.sellers.pstpyst.com/api";
+// ✅ CONFIG: กำหนด Domain API ที่ถูกต้อง (Hardcode เพื่อความชัวร์ใน Production)
+const TARGET_API_ORIGIN = "https://api.cusa.sellers.pstpyst.com";
+const API_BASE_URL = `${TARGET_API_ORIGIN}/api`;
 
 const STEPS = ["RECEIVED", "PREPARING_ORDER", "SHIPPING", "COMPLETED"];
 const STEP_LABELS: Record<string, string> = { 
@@ -84,26 +85,19 @@ export default function OrdersDetail() {
       const rawUrl = typeof result === 'string' ? result : result?.url;
       
       if (rawUrl) {
-        // ✅ Simplified Logic: ใช้ Domain จาก API_URL แทนของที่ Backend ส่งมา
+        // ✅ FIX: ใช้ Logic เดียวกับฝั่ง LIFF เพื่อบังคับ Domain ที่ถูกต้อง
         
-        // 1. แกะ Path ออกจาก URL (ตัด Domain ผิดๆ ทิ้งไป)
+        // 1. สร้าง URL Object เพื่อแยก Path (ป้องกันปัญหา Relative/Absolute URL ผสมกัน)
         const urlObj = new URL(rawUrl, window.location.origin);
+        
+        // 2. ดึงเฉพาะ Path และ Query String (เช่น /api/files/xxx.jpg?sig=...)
         const pathAndQuery = urlObj.pathname + urlObj.search;
 
-        // 2. หา Origin ที่ถูกต้องจาก API_URL (เช่น https://api.cusa...)
-        let correctOrigin = "";
-        try {
-            // ถ้า API_URL เป็น URL เต็ม (เช่น https://api...) ให้ดึง Origin ออกมา
-            correctOrigin = new URL(API_URL).origin;
-        } catch {
-            // ถ้า API_URL เป็น Relative (เช่น /api) ใน Dev ให้ปล่อยว่างไว้ (Browser จะเติมเอง)
-            correctOrigin = ""; 
-        }
-
-        // 3. รวมร่าง (ถ้ามี Origin ก็ใส่ ถ้าไม่มีก็ใช้ Path เดิมที่เป็น Relative)
-        const finalUrl = correctOrigin ? `${correctOrigin}${pathAndQuery}` : pathAndQuery;
+        // 3. นำมาต่อกับ Domain จริงที่ Hardcode ไว้
+        // ผลลัพธ์จะเป็น https://api.cusa.../api/files/... เสมอ
+        const finalUrl = `${TARGET_API_ORIGIN}${pathAndQuery}`;
         
-        console.log("Slip URL:", finalUrl);
+        console.log("✅ Fixed Slip URL:", finalUrl);
         setSlipUrl(finalUrl);
       }
     } catch (error) {
@@ -168,8 +162,8 @@ export default function OrdersDetail() {
   const onDelete = async () => {
       if(!confirm("⚠️ ยืนยันการลบออเดอร์นี้ถาวร?")) return;
       try {
-          // ใช้ API_URL ที่เราประกาศไว้ข้างบน (มันมี /api ต่อท้ายอยู่แล้ว ก็เอามาใช้ได้เลย)
-          await fetch(`${API_URL}/orders/${id}`, { 
+          // ใช้ API_BASE_URL ที่ถูกต้อง
+          await fetch(`${API_BASE_URL}/orders/${id}`, { 
              method: 'DELETE', 
              headers: { Authorization: `Bearer ${localStorage.getItem("aw_token")}` } 
           });
