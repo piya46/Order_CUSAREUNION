@@ -76,39 +76,53 @@ export default function OrdersDetail() {
       .finally(() => setLoading(false));
   };
 
-  const fetchSlipUrl = async (orderId: string) => {
+const fetchSlipUrl = async (orderId: string) => {
     setSlipError(false);
     try {
       const result = await getSlipSignedUrl(orderId);
-      const backendPath = typeof result === 'string' ? result : result?.url;
+      let urlFromBackend = typeof result === 'string' ? result : result?.url;
       
-      if (backendPath) {
-        // 1. ถ้า Backend ส่ง Full URL มา (มี http...) ให้ใช้เลย
-        if (backendPath.startsWith("http")) {
-            setSlipUrl(backendPath);
-            return;
+      if (urlFromBackend) {
+        // 🛠️ FIX: บังคับใช้ Domain จาก .env เสมอ แม้ Backend จะส่ง Full URL มาผิด
+        
+        let pathPart = urlFromBackend;
+
+        // 1. ถ้า Backend ส่งมาเป็น http://... ให้ตัด Domain ทิ้ง เอาแค่ Path
+        if (urlFromBackend.startsWith("http")) {
+            try {
+                const urlObj = new URL(urlFromBackend);
+                pathPart = urlObj.pathname + urlObj.search; // จะได้ /api/files/xxx.jpg?sig=...
+            } catch (e) {
+                // เผื่อ URL พัง
+                console.error("Invalid URL from backend", e);
+            }
         }
 
-        // 2. ถ้ามาแต่ Path ข้างหลัง ต้องเอามาประกอบร่างกับ API_URL
-        // ลบ / ท้ายสุดของ API_URL และ / ตัวหน้าสุดของ Path ออกก่อน เพื่อความชัวร์
+        // 2. เตรียม Base URL จาก .env (ตัด / ท้ายออก)
+        // VITE_API_URL = https://api.cusa.sellers.pstpyst.com/api
         let cleanBase = API_URL.replace(/\/+$/, ""); 
-        const cleanPath = backendPath.replace(/^\/+/, "");
 
-        // แก้ปัญหา: ถ้า Base ลงท้าย /api แล้ว Path ก็ขึ้นต้น api/ (มันจะซ้ำเป็น /api/api/)
-        // ให้ตัด /api ออกจาก Base ก่อน
+        // 3. เตรียม Path (ตัด / หน้าออก)
+        let cleanPath = pathPart.replace(/^\/+/, "");
+
+        // 4. แก้ปัญหา /api ซ้ำซ้อน
+        // ถ้า Base ลงท้าย /api และ Path ก็ขึ้นต้น api/ ให้ลบออกจาก Path ตัวนึง
         if (cleanBase.endsWith("/api") && cleanPath.startsWith("api/")) {
-            cleanBase = cleanBase.slice(0, -4);
+            cleanPath = cleanPath.substring(4); // ตัด "api/" ออก
         }
 
-        // เชื่อมกัน
-        setSlipUrl(`${cleanBase}/${cleanPath}`);
+        // 5. รวมร่าง: Base(.env) + Path(จาก backend)
+        const finalUrl = `${cleanBase}/${cleanPath}`;
+        
+        console.log("Slip URL fixed:", finalUrl); // ดู log เพื่อความชัวร์
+        setSlipUrl(finalUrl);
       }
     } catch (error) {
       console.error("Error fetching slip URL:", error);
       setSlipError(true);
     }
   };
-  
+
 
   const onSave = async () => {
     setSaving(true);
