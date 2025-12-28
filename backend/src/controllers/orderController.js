@@ -10,6 +10,7 @@ const lineMessageService = require('../services/lineMessageService');
 const slipokService = require('../services/slipOkService');
 const auditLogService = require('../services/auditLogService');
 const { clearRespCache } = require('../services/thaiPostService');
+const exportService = require('../services/exportService'); // <--- เพิ่มบรรทัดนี้
 
 // Signed URL
 const { buildSignedUrl } = require('../utils/fileSigner');
@@ -629,4 +630,19 @@ exports.pushMessageToCustomer = async (req, res, next) => {
 
     res.json({ success: true });
   } catch (err) { next(err); }
+};
+
+exports.exportExcel = async (req, res, next) => {
+  try {
+    // ดึงออร์เดอร์ทั้งหมด (เรียงจากใหม่ไปเก่า)
+    // ใช้ .lean() เพื่อประสิทธิภาพที่ดีกว่า
+    const orders = await Order.find()
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // เรียก Service ให้สร้าง Excel
+    await exportService.exportOrdersToExcel(orders, res);
+  } catch (err) {
+    next(err);
+  }
 };

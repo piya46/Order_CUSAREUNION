@@ -442,3 +442,106 @@ exports.exportReceivingToExcel = async (receiving, res) => {
     res.status(500).send("Error exporting Excel");
   }
 };
+
+exports.exportOrdersToExcel = async (orders, res) => {
+  try {
+    const wb = new excel.Workbook();
+    const ws = wb.addWorksheet('Order Report');
+
+    // 1. กำหนด Header (หัวตาราง)
+    ws.columns = [
+      { header: '#', key: 'no', width: 5 },
+      { header: 'Order No.', key: 'orderNo', width: 18 },
+      { header: 'วันที่ (Date)', key: 'date', width: 12 },
+      { header: 'เวลา (Time)', key: 'time', width: 10 },
+      { header: 'ลูกค้า (Customer)', key: 'customer', width: 20 },
+      { header: 'เบอร์โทร', key: 'phone', width: 15 },
+      { header: 'รายการสินค้า (Items)', key: 'items', width: 50 }, // กว้างหน่อยสำหรับรายการสินค้า
+      { header: 'ยอดรวม (Total)', key: 'total', width: 15 },
+      { header: 'สถานะโอนเงิน', key: 'paymentStatus', width: 15 },
+      { header: 'สถานะออเดอร์', key: 'orderStatus', width: 15 },
+      { header: 'การจัดส่ง', key: 'shipping', width: 15 },
+      { header: 'Tracking No.', key: 'tracking', width: 18 },
+      { header: 'ที่อยู่จัดส่ง', key: 'address', width: 40 },
+    ];
+
+    // 2. ตกแต่งหัวตาราง (Styling)
+    const headerRow = ws.getRow(1);
+    headerRow.height = 25;
+    headerRow.eachCell((cell) => {
+      cell.font = { bold: true, color: { argb: 'FFFFFF' }, size: 12 };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1976D2' } }; // สีน้ำเงิน
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = { bottom: { style: 'medium' } };
+    });
+
+    // 3. วนลูปใส่ข้อมูล
+    orders.forEach((order, index) => {
+      // แปลงวันที่และเวลา
+      const d = new Date(order.createdAt);
+      const dateStr = d.toLocaleDateString('th-TH');
+      const timeStr = d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+
+      // จัดรูปแบบรายการสินค้า (List Items) ให้เป็นบรรทัดๆ ใน 1 ช่อง
+      // ตัวอย่าง: 
+      // - เสื้อโปโล (L / ขาว) x 1
+      // - แก้วเก็บความเย็น x 2
+      const itemsList = (order.items || []).map(item => {
+        const spec = `${item.size ? item.size : '-'} / ${item.color ? item.color : '-'}`;
+        return `- ${item.productName} (${spec}) x ${item.quantity}`;
+      }).join('\n'); // ใช้ \n เพื่อขึ้นบรรทัดใหม่
+
+      const row = ws.addRow({
+        no: index + 1,
+        orderNo: order.orderNo,
+        date: dateStr,
+        time: timeStr,
+        customer: order.customerName,
+        phone: order.customerPhone || '-',
+        items: itemsList,
+        total: order.totalAmount,
+        paymentStatus: order.paymentStatus,
+        orderStatus: order.orderStatus,
+        shipping: order.shippingType,
+        tracking: order.trackingNumber || '-',
+        address: order.customerAddress || '-',
+      });
+
+      // 4. จัด Format ของแต่ละ Cell ในแถว
+      row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+        // ให้ทุกช่องชิดบน (Top) จะได้อ่านง่ายถ้ารายการสินค้ามันยาว
+        cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true }; 
+        
+        // ใส่เส้นขอบบางๆ
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'E0E0E0' } },
+          left: { style: 'thin', color: { argb: 'E0E0E0' } },
+          bottom: { style: 'thin', color: { argb: 'E0E0E0' } },
+          right: { style: 'thin', color: { argb: 'E0E0E0' } }
+        };
+
+        // จัดกลางเฉพาะคอลัมน์สั้นๆ
+        if ([1, 2, 3, 4, 9, 10, 11].includes(colNumber)) {
+          cell.alignment = { vertical: 'top', horizontal: 'center', wrapText: true };
+        }
+      });
+
+      // Format ตัวเลขเงิน
+      row.getCell('total').numFmt = '#,##0.00';
+      row.getCell('total').alignment = { vertical: 'top', horizontal: 'right' };
+      row.getCell('total').font = { bold: true };
+    });
+
+    // 5. ส่งไฟล์กลับ
+    const filename = `Orders_Export_${Date.now()}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    await wb.xlsx.write(res);
+    res.end();
+
+  } catch (err) {
+    console.error("Export Orders Excel Error:", err);
+    res.status(500).send("Error exporting Excel");
+  }
+};

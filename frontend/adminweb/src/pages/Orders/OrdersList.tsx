@@ -4,10 +4,10 @@ import {
   Box, Paper, Typography, Table, TableHead, TableRow, TableCell, TableBody,
   Stack, Chip, TextField, Button, Tooltip, IconButton, 
   InputAdornment, Dialog, DialogTitle, DialogContent, DialogActions, 
-  TablePagination, Card, CardContent, alpha, useTheme, Fade, Tab, Tabs, Alert
+  TablePagination, Card, CardContent, alpha, useTheme, Fade, Tab, Tabs, Alert, CircularProgress
 } from "@mui/material";
 import { Link } from "react-router-dom";
-import * as XLSX from "xlsx";
+// import * as XLSX from "xlsx"; // ❌ ไม่ใช้แล้ว เพราะย้ายไปทำที่ Backend เพื่อความสวยงาม
 
 // Icons
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
@@ -23,7 +23,7 @@ import StorefrontIcon from "@mui/icons-material/Storefront";
 
 const API = import.meta.env.VITE_API_URL || "/api";
 function getToken() { return localStorage.getItem("aw_token") || ""; }
-const fmtBaht = (n: number) => (n || 0).toLocaleString("th-TH", { minimumFractionDigits: 0 }) + " ฿";
+const fmtBaht = (n: number) => (n || 0).toLocaleString("th-TH", { minimumFractionDigits: 2 }) + " ฿";
 
 // Types
 type Order = {
@@ -51,6 +51,7 @@ export default function OrdersList() {
   const theme = useTheme();
   const [rows, setRows] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false); // ✅ เพิ่ม State สำหรับโหลดตอน Export
   
   // Pagination & Filters
   const [page, setPage] = useState(0);
@@ -96,94 +97,41 @@ export default function OrdersList() {
     revenue: rows.filter(x => x.paymentStatus === "PAYMENT_CONFIRMED").reduce((sum, x) => sum + (x.totalAmount || 0), 0)
   }), [rows]);
 
-  // --- 📊 EXPORT EXCEL FUNCTION (FILTERED REAL SALES) ---
-  const exportExcel = () => {
-    const wb = XLSX.utils.book_new();
-    const now = new Date().toLocaleString("th-TH");
+  // --- 📊 EXPORT EXCEL FUNCTION (VIA BACKEND) ---
+  const exportExcel = async () => {
+    setExporting(true);
+    try {
+        // เรียก API ที่เราสร้างไว้ใน Backend (services/exportService)
+        // เพื่อให้ได้ไฟล์ Excel ที่จัดรูปแบบ Wrap Text / Merge Column สวยงาม
+        const res = await fetch(`${API}/orders/export/excel`, {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${getToken()}` },
+        });
 
-    // 1. กรองเฉพาะออเดอร์ที่ "ขายได้จริง" หรือ "รอขาย" (ตัด Cancelled, Rejected, Expired ทิ้ง)
-    const validOrders = rows.filter(r => 
-        r.orderStatus !== 'CANCELLED' && 
-        r.paymentStatus !== 'REJECTED' && 
-        r.paymentStatus !== 'EXPIRED'
-    );
+        if (!res.ok) throw new Error("Export failed");
 
-    // คำนวณยอดขายเฉพาะกลุ่ม Valid
-    const validRevenue = validOrders
-        .filter(r => r.paymentStatus === "PAYMENT_CONFIRMED")
-        .reduce((sum, x) => sum + (x.totalAmount || 0), 0);
+        // รับไฟล์เป็น Blob
+        const blob = await res.blob();
+        
+        // สร้าง Link ชั่วคราวเพื่อกดดาวน์โหลด
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        const filename = `Orders_Export_${new Date().toISOString().split('T')[0]}.xlsx`;
+        link.setAttribute('download', filename);
+        document.body.appendChild(link);
+        link.click();
+        
+        // Cleanup
+        link.remove();
+        window.URL.revokeObjectURL(url);
 
-    // สร้างหน้า Summary (สรุปภาพรวม)
-    const summaryData = [
-        ["รายงานสรุปยอดขาย (Real Sales Report)"],
-        ["วันที่ออกรายงาน", now],
-        ["หมายเหตุ", "รายงานนี้ไม่รวมออเดอร์ที่ ยกเลิก / ไม่ผ่าน / หมดอายุ"],
-        [""],
-        ["----------------------------------------"],
-        ["📊 สรุปการเงิน (Financials)"],
-        ["ยอดขายรวมที่ชำระแล้ว (Confirmed Revenue)", validRevenue],
-        ["จำนวนออเดอร์ที่มีคุณภาพ (Valid Orders)", validOrders.length],
-        [""],
-        ["----------------------------------------"],
-        ["💳 แยกตามสถานะการจ่ายเงิน (Payment Status)"],
-        ["สถานะ", "จำนวนออเดอร์", "ยอดเงินรวม"],
-        // เอาเฉพาะสถานะที่ valid (รอโอน, รอตรวจ, ชำระแล้ว)
-        ...["WAITING", "PENDING_PAYMENT", "PAYMENT_CONFIRMED"].map(k => {
-            const group = validOrders.filter(r => r.paymentStatus === k);
-            const sum = group.reduce((a,b) => a + (b.totalAmount||0), 0);
-            return [PAY_THAI[k], group.length, sum];
-        }),
-        [""],
-        ["----------------------------------------"],
-        ["📦 แยกตามประเภทการจัดส่ง (Shipping Type)"],
-        ["ประเภท", "จำนวนออเดอร์"],
-        ...Object.keys(SHIP_THAI).map(k => [SHIP_THAI[k], validOrders.filter(r => r.shippingType === k).length]),
-    ];
-
-    const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
-    wsSummary['!cols'] = [{ wch: 35 }, { wch: 15 }, { wch: 15 }];
-    XLSX.utils.book_append_sheet(wb, wsSummary, "Summary (สรุป)");
-
-    // Helper Format
-    const formatRow = (o: Order) => ({
-       "Date": new Date(o.createdAt).toLocaleDateString("th-TH"),
-       "Time": new Date(o.createdAt).toLocaleTimeString("th-TH"),
-       "Order No": o.orderNo,
-       "Customer Name": o.customerName,
-       "Phone": o.customerPhone || "-",
-       "Shipping Type": SHIP_THAI[o.shippingType || "DELIVERY"] || o.shippingType,
-       "Address": o.customerAddress || "-",
-       "Tracking No": o.trackingNumber || "-",
-       "Items": (o.items||[]).map(i=>`${i.productName} (${i.size||'-'}) x${i.quantity}`).join(", "),
-       "Total Amount": o.totalAmount,
-       "Payment Status": PAY_THAI[o.paymentStatus] || o.paymentStatus,
-       "Order Status": ORDER_THAI[o.orderStatus] || o.orderStatus,
-    });
-
-    // 2. หน้า Sales List (รายชื่อออเดอร์ที่ขายได้จริง)
-    const allData = validOrders.map(formatRow);
-    const wsAll = XLSX.utils.json_to_sheet(allData);
-    wsAll['!cols'] = [{wch:10}, {wch:8}, {wch:15}, {wch:20}, {wch:12}, {wch:12}, {wch:40}, {wch:15}, {wch:40}, {wch:10}, {wch:15}, {wch:15}];
-    XLSX.utils.book_append_sheet(wb, wsAll, "Sales List (รายการขาย)");
-
-    // 3. Delivery
-    const deliveryRows = validOrders.filter(r => !r.shippingType || r.shippingType === 'DELIVERY').map(formatRow);
-    if(deliveryRows.length > 0){
-        const wsDelivery = XLSX.utils.json_to_sheet(deliveryRows);
-        wsDelivery['!cols'] = wsAll['!cols'];
-        XLSX.utils.book_append_sheet(wb, wsDelivery, "Delivery (จัดส่ง)");
+    } catch (err) {
+        console.error("Export Error:", err);
+        alert("❌ ไม่สามารถดาวน์โหลดไฟล์ได้ กรุณาลองใหม่ หรือตรวจสอบสิทธิ์การใช้งาน");
+    } finally {
+        setExporting(false);
     }
-
-    // 4. Pickup
-    const pickupRows = validOrders.filter(r => r.shippingType && r.shippingType.includes('PICKUP')).map(formatRow);
-    if(pickupRows.length > 0){
-        const wsPickup = XLSX.utils.json_to_sheet(pickupRows);
-        wsPickup['!cols'] = wsAll['!cols'];
-        XLSX.utils.book_append_sheet(wb, wsPickup, "Pickup (รับเอง)");
-    }
-
-    // Save File
-    XLSX.writeFile(wb, `RealSales_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   const deleteOrder = async (id: string) => {
@@ -225,7 +173,18 @@ export default function OrdersList() {
         </Stack>
         <Stack direction="row" spacing={1.5}>
            <Button variant="outlined" color="inherit" startIcon={<RefreshIcon/>} onClick={refreshOrders} sx={{ borderRadius: 2 }}>รีโหลด</Button>
-           <Button variant="contained" color="success" startIcon={<FileDownloadIcon/>} onClick={exportExcel} sx={{ borderRadius: 2, fontWeight: 700 }}>Export Report</Button>
+           
+           {/* ปุ่ม Export เรียก Backend */}
+           <Button 
+                variant="contained" 
+                color="success" 
+                startIcon={exporting ? <CircularProgress size={20} color="inherit" /> : <FileDownloadIcon/>} 
+                onClick={exportExcel} 
+                disabled={exporting}
+                sx={{ borderRadius: 2, fontWeight: 700 }}
+            >
+                {exporting ? "กำลังสร้างไฟล์..." : "Export Excel"}
+            </Button>
         </Stack>
       </Stack>
 
@@ -327,11 +286,10 @@ export default function OrdersList() {
                      <TableCell>
                        <Typography variant="body2" fontWeight={600}>{r.customerName}</Typography>
                        <Typography
-    variant="caption"
-    color="text.secondary"
-    noWrap // <--- ย้ายมาตรงนี้
-    sx={{ display: 'block', maxWidth: 150, textOverflow: 'ellipsis', overflow: 'hidden' }} // <--- ลบ noWrap: true ในนี้ออก
->
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{ display: 'block', maxWidth: 150, textOverflow: 'ellipsis', whiteSpace: 'nowrap', overflow: 'hidden' }}
+                        >
                            {(r.items||[]).length} รายการ
                        </Typography>
                      </TableCell>
