@@ -22,7 +22,7 @@ import BrokenImageIcon from "@mui/icons-material/BrokenImage";
 // Import API
 import { getOrder, updateOrder, verifySlip, getSlipSignedUrl, retrySlip, Order } from "../../api/admin";
 
-const API_URL = import.meta.env.VITE_API_URL || "";
+// const API_URL = import.meta.env.VITE_API_URL || "";
 
 const STEPS = ["RECEIVED", "PREPARING_ORDER", "SHIPPING", "COMPLETED"];
 const STEP_LABELS: Record<string, string> = { 
@@ -76,45 +76,44 @@ export default function OrdersDetail() {
       .finally(() => setLoading(false));
   };
 
-const fetchSlipUrl = async (orderId: string) => {
+// ดึงค่าจาก .env
+  const API_URL = import.meta.env.VITE_API_URL || "";
+
+  const fetchSlipUrl = async (orderId: string) => {
     setSlipError(false);
     try {
       const result = await getSlipSignedUrl(orderId);
-      let urlFromBackend = typeof result === 'string' ? result : result?.url;
+      const rawUrl = typeof result === 'string' ? result : result?.url;
       
-      if (urlFromBackend) {
-        // 🛠️ FIX: บังคับใช้ Domain จาก .env เสมอ แม้ Backend จะส่ง Full URL มาผิด
+      if (rawUrl) {
+        // 1. แปลง URL ที่ได้จาก Backend ให้เป็น Object เพื่อแยกส่วนประกอบ
+        // (ใส่ window.location.origin ไว้เป็น base เผื่อ backend ส่งมาแค่ relative path กัน error)
+        const urlObj = new URL(rawUrl, window.location.origin);
         
-        let pathPart = urlFromBackend;
+        // 2. ดึง Path และ Query String ออกมา (เช่น /api/files/xxx.jpg?sig=...)
+        // จาก Log ของคุณ Path คือ /api/files/...
+        const pathAndQuery = urlObj.pathname + urlObj.search;
 
-        // 1. ถ้า Backend ส่งมาเป็น http://... ให้ตัด Domain ทิ้ง เอาแค่ Path
-        if (urlFromBackend.startsWith("http")) {
-            try {
-                const urlObj = new URL(urlFromBackend);
-                pathPart = urlObj.pathname + urlObj.search; // จะได้ /api/files/xxx.jpg?sig=...
-            } catch (e) {
-                // เผื่อ URL พัง
-                console.error("Invalid URL from backend", e);
-            }
+        // 3. เตรียม Domain ปลายทางจาก .env
+        // .env ของคุณคือ: https://api.cusa.sellers.pstpyst.com/api
+        // เราต้องการแค่ "https://api.cusa.sellers.pstpyst.com" (Origin)
+        // เพราะใน pathAndQuery มี /api ติดมาอยู่แล้ว
+        let targetOrigin = API_URL;
+        
+        try {
+            // พยายามแกะ Origin จาก .env (จะได้ https://api.cusa.sellers.pstpyst.com)
+            const envUrlObj = new URL(API_URL);
+            targetOrigin = envUrlObj.origin; 
+        } catch (e) {
+            // กรณี .env ไม่ใช่ URL เต็มรูปแบบ ให้ใช้ logic เดิม หรือปล่อยผ่าน
+            // แต่เคสของคุณ .env ถูกต้อง มันจะเข้า try block แน่นอน
+            targetOrigin = API_URL.replace(/\/api\/?$/, ""); // fallback ตัด /api ท้ายออก
         }
 
-        // 2. เตรียม Base URL จาก .env (ตัด / ท้ายออก)
-        // VITE_API_URL = https://api.cusa.sellers.pstpyst.com/api
-        let cleanBase = API_URL.replace(/\/+$/, ""); 
-
-        // 3. เตรียม Path (ตัด / หน้าออก)
-        let cleanPath = pathPart.replace(/^\/+/, "");
-
-        // 4. แก้ปัญหา /api ซ้ำซ้อน
-        // ถ้า Base ลงท้าย /api และ Path ก็ขึ้นต้น api/ ให้ลบออกจาก Path ตัวนึง
-        if (cleanBase.endsWith("/api") && cleanPath.startsWith("api/")) {
-            cleanPath = cleanPath.substring(4); // ตัด "api/" ออก
-        }
-
-        // 5. รวมร่าง: Base(.env) + Path(จาก backend)
-        const finalUrl = `${cleanBase}/${cleanPath}`;
+        // 4. รวมร่าง: Domain ที่ถูก (.env) + Path ที่ได้จาก Backend
+        // ผลลัพธ์: https://api.cusa.sellers.pstpyst.com/api/files/...
+        const finalUrl = `${targetOrigin}${pathAndQuery}`;
         
-        console.log("Slip URL fixed:", finalUrl); // ดู log เพื่อความชัวร์
         setSlipUrl(finalUrl);
       }
     } catch (error) {
