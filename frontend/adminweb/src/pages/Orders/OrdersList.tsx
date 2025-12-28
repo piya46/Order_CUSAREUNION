@@ -7,7 +7,7 @@ import {
   TablePagination, Card, CardContent, alpha, useTheme, Fade, Tab, Tabs, Alert, CircularProgress
 } from "@mui/material";
 import { Link } from "react-router-dom";
-// import * as XLSX from "xlsx"; // ❌ ไม่ใช้แล้ว เพราะย้ายไปทำที่ Backend เพื่อความสวยงาม
+import * as XLSX from "xlsx"; // ✅ ใช้ Library นี้สำหรับ Export Client-side
 
 // Icons
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
@@ -51,7 +51,7 @@ export default function OrdersList() {
   const theme = useTheme();
   const [rows, setRows] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
-  const [exporting, setExporting] = useState(false); // ✅ เพิ่ม State สำหรับโหลดตอน Export
+  const [exporting, setExporting] = useState(false);
   
   // Pagination & Filters
   const [page, setPage] = useState(0);
@@ -94,41 +94,71 @@ export default function OrdersList() {
     total: rows.length,
     pendingCheck: rows.filter(x => x.paymentStatus === "PENDING_PAYMENT").length,
     toShip: rows.filter(x => x.paymentStatus === "PAYMENT_CONFIRMED" && !["SHIPPING","COMPLETED","CANCELLED"].includes(x.orderStatus)).length,
-    revenue: rows.filter(x => x.paymentStatus === "PAYMENT_CONFIRMED").reduce((sum, x) => sum + (x.totalAmount || 0), 0)
   }), [rows]);
 
-  // --- 📊 EXPORT EXCEL FUNCTION (VIA BACKEND) ---
-  const exportExcel = async () => {
+  // --- 📊 EXPORT EXCEL FUNCTION (Client Side - Revised) ---
+  const exportExcel = () => {
     setExporting(true);
     try {
-        // เรียก API ที่เราสร้างไว้ใน Backend (services/exportService)
-        // เพื่อให้ได้ไฟล์ Excel ที่จัดรูปแบบ Wrap Text / Merge Column สวยงาม
-        const res = await fetch(`${API}/orders/export/excel`, {
-            method: 'GET',
-            headers: { Authorization: `Bearer ${getToken()}` },
+        // ใช้ rows (ทั้งหมด) เพื่อ Export ข้อมูลทั้งหมดในระบบ
+        const dataToExport = rows.map((r, index) => {
+            
+            // ✅ ปรับปรุงการดึงข้อมูลสินค้า (Items) ให้แสดง สี และ ไซส์ ชัดเจน
+            const itemsStr = (r.items || []).map((item: any, idx: number) => {
+                const details = [];
+                if (item.size) details.push(`ไซส์: ${item.size}`);
+                if (item.color) details.push(`สี: ${item.color}`);
+                
+                // รวมรายละเอียดในวงเล็บ เช่น (ไซส์: L / สี: ขาว)
+                const detailStr = details.length > 0 ? ` (${details.join(' / ')})` : '';
+                
+                // รูปแบบบรรทัด: 1. เสื้อยืด (ไซส์: L / สี: ขาว) x1 @250
+                return `${idx + 1}. ${item.productName}${detailStr} x${item.quantity} @${item.price}`;
+            }).join('\r\n'); // ใช้ \r\n เพื่อให้ Excel ตัดบรรทัดได้ดีขึ้น
+
+            return {
+                "ลำดับ": index + 1,
+                "เลขที่ออเดอร์": r.orderNo,
+                "วันที่สั่งซื้อ": new Date(r.createdAt).toLocaleDateString("th-TH"),
+                "เวลา": new Date(r.createdAt).toLocaleTimeString("th-TH"),
+                "ชื่อลูกค้า": r.customerName,
+                "เบอร์โทร": r.customerPhone || "-",
+                "รายการสินค้า (Items)": itemsStr, // <--- ข้อมูลครบถ้วนรวมสีและไซส์
+                "ยอดรวม (บาท)": r.totalAmount,
+                "สถานะการชำระ": PAY_THAI[r.paymentStatus] || r.paymentStatus,
+                "สถานะคำสั่งซื้อ": ORDER_THAI[r.orderStatus] || r.orderStatus,
+                "การจัดส่ง": SHIP_THAI[r.shippingType || "DELIVERY"] || r.shippingType,
+                "Tracking No": r.trackingNumber || "-",
+                "ที่อยู่จัดส่ง": r.customerAddress || "-",
+            };
         });
 
-        if (!res.ok) throw new Error("Export failed");
+        // สร้าง Workbook และ Worksheet
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.json_to_sheet(dataToExport);
 
-        // รับไฟล์เป็น Blob
-        const blob = await res.blob();
-        
-        // สร้าง Link ชั่วคราวเพื่อกดดาวน์โหลด
-        const url = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        const filename = `Orders_Export_${new Date().toISOString().split('T')[0]}.xlsx`;
-        link.setAttribute('download', filename);
-        document.body.appendChild(link);
-        link.click();
-        
-        // Cleanup
-        link.remove();
-        window.URL.revokeObjectURL(url);
+        // กำหนดความกว้างคอลัมน์ (หน่วย: ตัวอักษร)
+        ws['!cols'] = [
+            { wch: 6 },  // ลำดับ
+            { wch: 18 }, // เลขที่ออเดอร์
+            { wch: 12 }, // วันที่
+            { wch: 10 }, // เวลา
+            { wch: 25 }, // ชื่อลูกค้า
+            { wch: 15 }, // เบอร์โทร
+            { wch: 60 }, // รายการสินค้า (กว้างพิเศษเพื่อให้เห็นรายละเอียด)
+            { wch: 12 }, // ยอดรวม
+            { wch: 15 }, // สถานะชำระ
+            { wch: 15 }, // สถานะออเดอร์
+            { wch: 15 }, // การจัดส่ง
+            { wch: 18 }, // Tracking
+            { wch: 40 }, // ที่อยู่
+        ];
 
+        XLSX.utils.book_append_sheet(wb, ws, "Orders");
+        XLSX.writeFile(wb, `Orders_Export_${new Date().toISOString().slice(0, 10)}.xlsx`);
     } catch (err) {
         console.error("Export Error:", err);
-        alert("❌ ไม่สามารถดาวน์โหลดไฟล์ได้ กรุณาลองใหม่ หรือตรวจสอบสิทธิ์การใช้งาน");
+        alert("❌ ไม่สามารถส่งออกไฟล์ได้");
     } finally {
         setExporting(false);
     }
@@ -174,7 +204,7 @@ export default function OrdersList() {
         <Stack direction="row" spacing={1.5}>
            <Button variant="outlined" color="inherit" startIcon={<RefreshIcon/>} onClick={refreshOrders} sx={{ borderRadius: 2 }}>รีโหลด</Button>
            
-           {/* ปุ่ม Export เรียก Backend */}
+           {/* ปุ่ม Export เรียกฟังก์ชันหน้าบ้าน */}
            <Button 
                 variant="contained" 
                 color="success" 
@@ -285,11 +315,7 @@ export default function OrdersList() {
                      </TableCell>
                      <TableCell>
                        <Typography variant="body2" fontWeight={600}>{r.customerName}</Typography>
-                       <Typography
-                            variant="caption"
-                            color="text.secondary"
-                            sx={{ display: 'block', maxWidth: 150, textOverflow: 'ellipsis', whiteSpace: 'nowrap', overflow: 'hidden' }}
-                        >
+                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', maxWidth: 150, textOverflow: 'ellipsis', whiteSpace: 'nowrap', overflow: 'hidden' }}>
                            {(r.items||[]).length} รายการ
                        </Typography>
                      </TableCell>

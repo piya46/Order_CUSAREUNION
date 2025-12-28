@@ -80,24 +80,35 @@ export default function OrdersDetail() {
     setSlipError(false);
     try {
       const result = await getSlipSignedUrl(orderId);
-      const url = typeof result === 'string' ? result : result?.url;
+      const backendPath = typeof result === 'string' ? result : result?.url;
       
-      if (url) {
-        // ✅ FIX: เช็คว่าถ้า API_URL ใน .env จบด้วย /api ให้ตัดทิ้ง
-        // เพื่อป้องกันกรณีที่ Backend ส่ง path มาเริ่มด้วย /api แล้วมันชนกันเป็น /api/api
-        let baseUrl = API_URL;
-        if (baseUrl.endsWith('/api')) {
-            baseUrl = baseUrl.slice(0, -4);
+      if (backendPath) {
+        // 1. ถ้า Backend ส่ง Full URL มา (มี http...) ให้ใช้เลย
+        if (backendPath.startsWith("http")) {
+            setSlipUrl(backendPath);
+            return;
         }
 
-        const fullUrl = url.startsWith("http") ? url : `${baseUrl}${url}`;
-        setSlipUrl(fullUrl);
+        // 2. ถ้ามาแต่ Path ข้างหลัง ต้องเอามาประกอบร่างกับ API_URL
+        // ลบ / ท้ายสุดของ API_URL และ / ตัวหน้าสุดของ Path ออกก่อน เพื่อความชัวร์
+        let cleanBase = API_URL.replace(/\/+$/, ""); 
+        const cleanPath = backendPath.replace(/^\/+/, "");
+
+        // แก้ปัญหา: ถ้า Base ลงท้าย /api แล้ว Path ก็ขึ้นต้น api/ (มันจะซ้ำเป็น /api/api/)
+        // ให้ตัด /api ออกจาก Base ก่อน
+        if (cleanBase.endsWith("/api") && cleanPath.startsWith("api/")) {
+            cleanBase = cleanBase.slice(0, -4);
+        }
+
+        // เชื่อมกัน
+        setSlipUrl(`${cleanBase}/${cleanPath}`);
       }
     } catch (error) {
       console.error("Error fetching slip URL:", error);
       setSlipError(true);
     }
   };
+  
 
   const onSave = async () => {
     setSaving(true);
