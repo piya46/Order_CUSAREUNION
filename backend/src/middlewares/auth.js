@@ -1,5 +1,6 @@
 // backend/src/middlewares/auth.js
 const jwt = require('jsonwebtoken');
+const UserSession = require('../models/UserSession'); // [เพิ่ม] เรียกใช้ Model
 
 // --- ENV (Admin JWT) ---
 const AUTH_SECRET = process.env.AUTH_SECRET || process.env.JWT_SECRET || 'change-me';
@@ -12,11 +13,11 @@ const LINE_ISS        = process.env.LINE_ID_TOKEN_ISS || 'https://access.line.me
 const LINE_JWKS_URL   = process.env.LINE_JWKS_URL || 'https://api.line.me/oauth2/v2.1/certs';
 
 // ----- jose (ESM) dynamic import + cache -----
-let _jose = null;           // { createRemoteJWKSet, jwtVerify }
-let _JWKS = null;           // cached JWKS
+let _jose = null;           
+let _JWKS = null;           
 async function ensureJose() {
   if (_jose && _JWKS) return _jose;
-  const jose = await import('jose'); // ← แก้ ERR_REQUIRE_ESM
+  const jose = await import('jose'); 
   _jose = jose;
   _JWKS = jose.createRemoteJWKSet(new URL(LINE_JWKS_URL), { cooldownDuration: 60_000 });
   return jose;
@@ -28,11 +29,9 @@ const getBearer = (req) => {
   return h.startsWith('Bearer ') ? h.slice(7) : null;
 };
 
-// ข้าม preflight เสมอ (แต่ app.js ก็กันไว้แล้ว เผื่อมีการผูก middleware บาง route)
 const skipIfOptions = (handler) => (req, res, next) =>
   req.method === 'OPTIONS' ? next() : handler(req, res, next);
 
-// กำหนด opts ของ jwt.verify สำหรับ Admin JWT (เช็คเฉพาะตอนตั้งค่า)
 function buildVerifyOpts() {
   const opts = {};
   if (ADMIN_AUD) opts.audience = ADMIN_AUD;
@@ -43,12 +42,26 @@ function buildVerifyOpts() {
 /* =========================
  * Admin-only (Dashboard/API)
  * ========================= */
+// [แก้ไข] เปลี่ยนเป็น async เพื่อรอ query database
 exports.requireAdmin = (roles = []) =>
-  skipIfOptions((req, res, next) => {
+  skipIfOptions(async (req, res, next) => {
     const token = getBearer(req);
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    if (!token) return res.status(401).json({ error: 'Unauthorized: No token provided' });
+    
     try {
       const payload = jwt.verify(token, AUTH_SECRET, buildVerifyOpts());
+      
+      // --- [SECURITY CHECK] ---
+      // ตรวจสอบว่า sessionId ใน Token ยังมีอยู่ใน Database หรือไม่
+      if (payload.sessionId) {
+        const session = await UserSession.findOne({ sessionId: payload.sessionId });
+        if (!session) {
+          // ถ้าไม่เจอ แสดงว่าหมดอายุ (โดน TTL ลบ) หรือโดนสั่ง Logout/Kick
+          return res.status(401).json({ error: 'Session expired or revoked. Please login again.' });
+        }
+      }
+      // ------------------------
+
       const primaryRole = payload.role || 'admin';
       req.user = {
         id: payload.sub,
@@ -58,12 +71,16 @@ exports.requireAdmin = (roles = []) =>
         permissions: Array.isArray(payload.permissions) ? payload.permissions : [],
         sessionId: payload.sessionId || undefined,
       };
+
       if (roles.length && !roles.some(r => req.user.roles.includes(r))) {
-        return res.status(403).json({ error: 'Forbidden' });
+        return res.status(403).json({ error: 'Forbidden: Insufficient permissions' });
       }
       next();
-    } catch {
-      return res.status(401).json({ error: 'Unauthorized' });
+    } catch (err) {
+      if (err.name === 'TokenExpiredError') {
+        return res.status(401).json({ error: 'Token expired' });
+      }
+      return res.status(401).json({ error: 'Unauthorized: Invalid token' });
     }
   });
 
@@ -104,6 +121,13 @@ exports.requireAdminOrLiff = skipIfOptions(async (req, res, next) => {
   // 1) ลอง Admin ก่อน
   try {
     const payload = jwt.verify(token, AUTH_SECRET, buildVerifyOpts());
+    
+    // [SECURITY CHECK] Admin path ก็ต้องเช็ค Session DB เช่นกัน
+    if (payload.sessionId) {
+        const session = await UserSession.findOne({ sessionId: payload.sessionId });
+        if (!session) throw new Error('Session revoked');
+    }
+
     const primaryRole = payload.role || 'admin';
     req.user = {
       id: payload.sub,
@@ -115,7 +139,7 @@ exports.requireAdminOrLiff = skipIfOptions(async (req, res, next) => {
     };
     return next();
   } catch {
-    // fallthrough
+    // fallthrough ถ้า Admin token ไม่ผ่าน ให้ไปลองเช็คว่าเป็น LIFF หรือไม่
   }
 
   // 2) จากนั้นลอง LIFF

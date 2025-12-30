@@ -1,6 +1,6 @@
 // src/lib/session.ts
 export const TOKEN_KEY = "aw_token";
-export const USER_KEY  = "aw_user";
+export const USER_KEY  = "admin_user";
 
 export type UserPayload = {
   username?: string;

@@ -1,5 +1,5 @@
-// src/components/SideNav.tsx
-import { useMemo, useState, useEffect } from "react";
+// frontend/adminweb/src/components/SideNav.tsx
+import { useMemo } from "react";
 import {
   Box, Drawer, List, ListItemButton, ListItemIcon, ListItemText,
   Toolbar, Typography, Divider, Chip, alpha
@@ -16,11 +16,10 @@ import ReportProblemIcon from "@mui/icons-material/ReportProblem";
 import GroupIcon from "@mui/icons-material/Group";
 import SecurityIcon from "@mui/icons-material/Security";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
-import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import StoreIcon from "@mui/icons-material/Store";
-import WarehouseIcon from "@mui/icons-material/Warehouse"; // ไอคอน Inventory
+import WarehouseIcon from "@mui/icons-material/Warehouse";
 
-import { getUser } from "../lib/session";
+import { getUser } from "../lib/session"; // [1] อ่าน aw_user
 
 const drawerWidth = 280;
 
@@ -30,12 +29,13 @@ type GroupItem = {
   items: { to: string; label: string; icon?: React.ReactNode; perm?: string }[];
 };
 
+// [Config] รายการเมนูและสิทธิ์ที่ต้องใช้ (ต้องตรงกับใน aw_user)
 const GROUPS: GroupItem[] = [
   {
     id: "ops",
     label: "หน้าร้าน (Front Office)",
     items: [
-      { to: "/", label: "ภาพรวม (Dashboard)", icon: <DashboardIcon /> },
+      { to: "/", label: "ภาพรวม (Dashboard)", icon: <DashboardIcon /> }, // ไม่มี perm = ใครเข้าได้ก็เห็นหมด
       { to: "/orders", label: "รายการคำสั่งซื้อ", icon: <ReceiptLongIcon />, perm: "order:manage" },
       { to: "/products", label: "ข้อมูลสินค้า (Catalog)", icon: <Inventory2Icon />, perm: "product:manage" },
     ]
@@ -44,7 +44,7 @@ const GROUPS: GroupItem[] = [
     id: "supply_chain",
     label: "จัดการคลัง & จัดซื้อ (Back Office)",
     items: [
-      { to: "/inventory", label: "บริหารสต็อก (Inventory)", icon: <WarehouseIcon />, perm: "product:manage" }, // ✅ เมนูใหม่
+      { to: "/inventory", label: "บริหารสต็อก (Inventory)", icon: <WarehouseIcon />, perm: "product:manage" },
       { to: "/po", label: "ใบสั่งซื้อ (PO)", icon: <ShoppingCartIcon />, perm: "po:manage" },
       { to: "/receiving", label: "รับสินค้าเข้า (Receiving)", icon: <MoveDownIcon />, perm: "receiving:manage" },
       { to: "/suppliers", label: "ผู้ขาย (Suppliers)", icon: <StoreIcon />, perm: "po:manage" }, 
@@ -74,8 +74,13 @@ export default function SideNav({
   const location = useLocation();
   const mode = (import.meta.env.MODE || "app").toUpperCase();
   
+  // [2] ดึง User จาก LocalStorage (aw_user)
   const user = useMemo(getUser, []);
+  
+  // [3] สร้าง Set ของสิทธิ์ที่มี
   const permSet = useMemo(() => new Set(user.permissions || []), [user.permissions]);
+
+  // [4] ฟังก์ชันเช็คสิทธิ์: ถ้าเมนูไม่มี perm กำหนด หรือ user มีสิทธิ์นั้น -> แสดง
   const can = (p?: string) => !p || permSet.has(p);
 
   const groups = useMemo(

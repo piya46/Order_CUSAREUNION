@@ -1,4 +1,4 @@
-// src/pages/Login.tsx
+// frontend/adminweb/src/pages/Login.tsx
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -39,14 +39,34 @@ export default function Login() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password })
       });
+      
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Login failed");
+      
+      if (!res.ok) {
+        // [Security] จัดการ Error Code ต่างๆ
+        const error: any = new Error(data?.error || "Login failed");
+        error.status = res.status;
+        throw error;
+      }
 
-      localStorage.setItem("aw_token", data.token);
-      localStorage.setItem("aw_user", JSON.stringify(data.user || {}));
-      nav("/");
+      localStorage.setItem("aw_token", data.token); // ใช้ aw_token หรือ admin_token ให้ตรงกับ auth.ts (ใน auth.ts ใช้ admin_token)
+      // *หมายเหตุ: ตรวจสอบ key ให้ตรงกัน ในที่นี้ขอแก้ให้ตรงกับ auth.ts ที่ส่งไปก่อนหน้า คือ 'admin_token'*
+      localStorage.setItem("admin_token", data.token); 
+      localStorage.setItem("admin_user", JSON.stringify(data.user || {}));
+      
+      // refresh page หรือ redirect เพื่อให้ auth hook ทำงานใหม่
+      window.location.href = "/"; 
     } catch (e: any) {
-      setErr(e?.message || "ไม่สามารถเข้าสู่ระบบได้");
+      // [Security] Error Messages Handling
+      if (e.status === 429) {
+        setErr("คุณลองเข้าสู่ระบบบ่อยเกินไป กรุณารอ 15 นาที (Too many attempts)");
+      } else if (e.status === 403) {
+        setErr(e.message || "บัญชีนี้เข้าใช้งานเกินจำนวนเครื่องที่กำหนด");
+      } else if (e.status === 401) {
+        setErr("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง");
+      } else {
+        setErr(e.message || "ไม่สามารถเข้าสู่ระบบได้");
+      }
     } finally {
       setLoading(false);
     }
@@ -63,12 +83,10 @@ export default function Login() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        // พื้นหลังสีเหลืองพาสเทล + gradient
         background: `radial-gradient(circle at 50% 10%, #FFECB3 0%, #FFFAE6 40%, #FFFFFF 100%)`,
         px: 2
       }}
     >
-      {/* Background Decor */}
       <Box sx={{
           position: 'absolute', top: -100, right: -100, width: 400, height: 400, 
           bgcolor: '#FFD54F', borderRadius: '50%', opacity: 0.2, filter: 'blur(80px)' 

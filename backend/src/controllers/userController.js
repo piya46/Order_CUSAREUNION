@@ -1,86 +1,3 @@
-// const User = require('../models/User');
-// const Role = require('../models/Role');
-// const bcrypt = require('bcryptjs');
-// const jwt = require('jsonwebtoken');
-// const config = require('../config');
-// const auditLogService = require('../services/auditLogService');
-// const { v4: uuidv4 } = require('uuid');
-// const UserSession = require('../models/UserSession');
-
-// exports.register = async (req, res, next) => {
-//   try {
-//     const { username, password, name, email, roles } = req.body;
-//     const passwordHash = await bcrypt.hash(password, 10);
-//     const user = new User({ username, passwordHash, name, email, roles });
-//     await user.save();
-//     await auditLogService.log({
-//         user: null,
-//         action: 'USER_REGISTER',
-//         detail: { username: user.username, name: user.name },
-//         ip: req.ip
-//     });
-
-//     res.status(201).json(user);
-//   } catch (err) { next(err); }
-// };
-
-// exports.login = async (req, res, next) => {
-//   try {
-//     const { username, password } = req.body;
-//     const user = await User.findOne({ username }).populate('roles');
-//     if (!user || !await bcrypt.compare(password, user.passwordHash)) {
-//       return res.status(401).json({ error: 'Invalid username or password' });
-//     }
-//     // นับ session เดิมของ user ก่อน
-//     const sessionCount = await UserSession.countDocuments({ user: user._id });
-//     if (sessionCount >= 3) {
-//       return res.status(403).json({ error: 'คุณเข้าสู่ระบบเกินจำนวนสูงสุด 3 เครื่องแล้ว กรุณา logout ออกจากเครื่องเดิมก่อน' });
-//     }
-//     const permissions = user.roles.reduce((perms, role) => perms.concat(role.permissions || []), []);
-//     const deviceInfo = req.headers['user-agent'] || '';
-//     const sessionId = uuidv4();
-//     await UserSession.create({ user: user._id, sessionId, deviceInfo });
-
-//     const payload = {
-//       id: user._id,
-//       username: user.username,
-//       roles: user.roles.map(r => r.name),
-//       permissions,
-//       sessionId
-//     };
-//     const token = jwt.sign(payload, config.jwtSecret, { expiresIn: config.jwtExpiresIn });
-//     await auditLogService.log({
-//       user: user._id,
-//       action: 'USER_LOGIN',
-//       detail: { username: user.username, sessionId },
-//       ip: req.ip
-//     });
-//     res.json({ token, user: payload });
-//   } catch (err) { next(err); }
-// };
-
-
-// exports.getAll = async (req, res, next) => {
-//   try {
-//     const users = await User.find().populate('roles');
-//     res.json(users);
-//   } catch (err) { next(err); }
-// };
-
-// exports.logout = async (req, res, next) => {
-//   try {
-//     // ใช้ sessionId จาก req.user (middleware auth decode JWT ให้แล้ว)
-//     const { sessionId } = req.user;
-//     if (sessionId) {
-//       await UserSession.deleteOne({ sessionId });
-//     }
-//     res.json({ success: true, message: 'Logged out successfully.' });
-//   } catch (err) {
-//     next(err);
-//   }
-// };
-
-
 // backend/src/controllers/userController.js
 const User = require('../models/User');
 const Role = require('../models/Role');
@@ -98,7 +15,6 @@ const EXPIRES   = config.jwtExpiresIn || process.env.JWT_EXPIRES_IN || '12h';
 // ========== Helpers ==========
 function signAdminJwt({ userId, roles = [], permissions = [], sessionId }) {
   const primaryRole = roles[0] || 'admin';
-  // NOTE: ใช้ subject (sub), audience (aud), issuer (iss) ให้ตรงกับ requireAdmin
   return jwt.sign(
     { role: primaryRole, roles, permissions, sessionId },
     config.jwtSecret,
@@ -138,6 +54,7 @@ exports.login = async (req, res, next) => {
 
     const user = await User.findOne({ username }).populate('roles');
     if (!user || !await bcrypt.compare(password, user.passwordHash)) {
+      // แนะนำ: อาจจะหน่วงเวลาสักนิด (เช่น 500ms) ก่อนตอบกลับเพื่อป้องกัน Timing Attack ในระบบที่ซีเรียสมาก
       return res.status(401).json({ error: 'Invalid username or password' });
     }
 
@@ -149,9 +66,21 @@ exports.login = async (req, res, next) => {
 
     const roleNames = (user.roles || []).map(r => r.name);
     const permissions = (user.roles || []).reduce((perms, r) => perms.concat(r.permissions || []), []);
+    
+    // เก็บข้อมูล Device และ IP
     const deviceInfo = req.headers['user-agent'] || '';
+    // req.ip หรือ x-forwarded-for กรณีอยู่หลัง proxy (app.js ต้อง set trust proxy ด้วย)
+    const ipAddress = req.ip || (req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+    
     const sessionId = uuidv4();
-    await UserSession.create({ user: user._id, sessionId, deviceInfo });
+    
+    // Create Session
+    await UserSession.create({ 
+      user: user._id, 
+      sessionId, 
+      deviceInfo, 
+      ipAddress 
+    });
 
     const token = signAdminJwt({
       userId: user._id,
@@ -241,7 +170,9 @@ exports.logout = async (req, res, next) => {
   try {
     const { sessionId } = req.user || {};
     if (sessionId) {
+      // ลบ Session ออกจาก DB ทันที -> Token เดิมจะใช้ไม่ได้อีกต่อไป (เพราะ middleware เช็ค DB)
       await UserSession.deleteOne({ sessionId });
+      
       await auditLogService.log({
         user: req.user?.id,
         action: 'USER_LOGOUT',
@@ -253,11 +184,6 @@ exports.logout = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-
-// backend/src/controllers/userController.js
-// ... imports เดิมทั้งหมดคงไว้ ...
-
-// (วางต่อจาก exports.logout หรือจะวางก่อนก็ได้)
 exports.me = async (req, res, next) => {
   try {
     // req.user ถูกเติมโดย middleware auth (อ่านจาก JWT)
@@ -283,7 +209,7 @@ exports.me = async (req, res, next) => {
     // fallback: กรณีหา user ใน DB ไม่เจอ ให้ส่งเท่าที่มีจาก token
     return res.json({
       id: uid ? String(uid) : undefined,
-      username: undefined, // ไม่ได้ใส่ใน JWT
+      username: undefined, 
       name: undefined,
       email: undefined,
       roles: req.user?.roles || [],
@@ -294,4 +220,3 @@ exports.me = async (req, res, next) => {
     next(err);
   }
 };
-
