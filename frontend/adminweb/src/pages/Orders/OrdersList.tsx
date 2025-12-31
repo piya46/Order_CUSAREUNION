@@ -1,11 +1,11 @@
-// src/pages/Orders/OrdersList.tsx
+// frontend/adminweb/src/pages/Orders/OrdersList.tsx
 import { useEffect, useMemo, useState } from "react";
 import {
   Box, Paper, Typography, Table, TableHead, TableRow, TableCell, TableBody,
   Stack, Chip, TextField, Button, Tooltip, IconButton,
   InputAdornment, Dialog, DialogTitle, DialogContent, DialogActions,
   TablePagination, Card, CardContent, alpha, useTheme, Fade, Tab, Tabs, Alert, CircularProgress,
-  Checkbox
+  Checkbox, Backdrop, LinearProgress, Skeleton
 } from "@mui/material";
 import { Link } from "react-router-dom";
 import * as XLSX from "xlsx";
@@ -22,13 +22,17 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import StorefrontIcon from "@mui/icons-material/Storefront";
 import PrintIcon from "@mui/icons-material/Print";
+import InboxIcon from "@mui/icons-material/Inbox";
 
-// --- Configuration ---
+// SweetAlert & Utils
+import { showConfirm, showSuccess, showError, showLoading, swal } from "../../lib/sweetalert";
+import { TOKEN_KEY } from "../../lib/session";
+
 const API = import.meta.env.VITE_API_URL || "/api";
-function getToken() { return localStorage.getItem("aw_token") || ""; }
+function getToken() { return localStorage.getItem(TOKEN_KEY) || ""; }
 const fmtBaht = (n: number) => (n || 0).toLocaleString("th-TH", { minimumFractionDigits: 2 }) + " ฿";
 
-// --- Types ---
+// ... (Types & Mappings) ...
 type Order = {
   _id: string;
   orderNo: string;
@@ -45,7 +49,6 @@ type Order = {
   createdAt: string;
 };
 
-// --- Mappings ---
 const PAY_THAI: Record<string, string> = {
   WAITING: "รอโอน",
   PENDING_PAYMENT: "รอตรวจสลิป",
@@ -71,41 +74,43 @@ const SHIP_THAI: Record<string, string> = {
 export default function OrdersList() {
   const theme = useTheme();
   
-  // --- Data States ---
-  const [rows, setRows] = useState<Order[]>([]);
+  // Data States
+  const [rows, setRows] = useState<Order[] | null>(null); 
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
 
-  // --- Pagination & Filter States ---
+  // Pagination & Filter States
   const [page, setPage] = useState(0);
-  
-  // ✅ FIX: โหลดค่าจาก LocalStorage เป็นค่าเริ่มต้น (ถ้าไม่มีใช้ 10)
   const [rowsPerPage, setRowsPerPage] = useState(() => {
      const saved = localStorage.getItem("orders_rows_per_page");
      return saved ? Number(saved) : 10;
   });
-
   const [q, setQ] = useState("");
   const [tabValue, setTabValue] = useState("ALL");
+  const [selected, setSelected] = useState<string[]>([]); 
 
-  // --- Selection State ---
-  const [selected, setSelected] = useState<string[]>([]); // Store selected Order IDs
-
-  // --- Action States ---
+  // Action States
   const [msgDlg, setMsgDlg] = useState<{ open: boolean; order?: Order }>({ open: false });
   const [msgText, setMsgText] = useState("");
 
-  // --- Fetch Data ---
-  const refreshOrders = async () => {
+  const refreshOrders = async (isManual = false) => {
     setLoading(true);
+    if(isManual) showLoading("กำลังโหลดข้อมูลล่าสุด...");
+
     try {
       const res = await fetch(`${API}/orders`, { 
         headers: { Authorization: `Bearer ${getToken()}` } 
       });
       const data = await res.json();
+      
+      if (rows === null) await new Promise(r => setTimeout(r, 500));
+
       setRows(Array.isArray(data) ? data : []);
+      if(isManual) swal.close();
+
     } catch { 
       setRows([]); 
+      if(isManual) showError("โหลดข้อมูลไม่สำเร็จ");
     } finally { 
       setLoading(false); 
     }
@@ -113,8 +118,9 @@ export default function OrdersList() {
 
   useEffect(() => { refreshOrders(); }, []);
 
-  // --- Filter Logic ---
+  // Filter Logic
   const filtered = useMemo(() => {
+    if (!rows) return [];
     return rows.filter(r => {
       const matchQ = !q || r.orderNo.toLowerCase().includes(q.toLowerCase()) || r.customerName.toLowerCase().includes(q.toLowerCase());
       let matchTab = true;
@@ -130,57 +136,43 @@ export default function OrdersList() {
     });
   }, [rows, q, tabValue]);
 
-  // --- Pagination Logic (With 'Show All' support) ---
   const paginatedRows = useMemo(() => {
     if (rowsPerPage === -1) return filtered;
     return filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
   }, [filtered, page, rowsPerPage]);
 
-  const stats = useMemo(() => ({
-    total: rows.length,
-    pendingCheck: rows.filter(x => x.paymentStatus === "PENDING_PAYMENT").length,
-    toShip: rows.filter(x => x.paymentStatus === "PAYMENT_CONFIRMED" && !["SHIPPING","COMPLETED","CANCELLED"].includes(x.orderStatus)).length,
-  }), [rows]);
+  const stats = useMemo(() => {
+    const list = rows || [];
+    return {
+        total: list.length,
+        pendingCheck: list.filter(x => x.paymentStatus === "PENDING_PAYMENT").length,
+        toShip: list.filter(x => x.paymentStatus === "PAYMENT_CONFIRMED" && !["SHIPPING","COMPLETED","CANCELLED"].includes(x.orderStatus)).length,
+    };
+  }, [rows]);
 
-  // --- Selection Logic (Persist across pages) ---
+  // Selection Logic
   const isPageSelected = paginatedRows.length > 0 && paginatedRows.every(r => selected.includes(r._id));
   const isPageIndeterminate = paginatedRows.some(r => selected.includes(r._id)) && !isPageSelected;
 
   const handleSelectAllClick = (event: React.ChangeEvent<HTMLInputElement>) => {
     const currentIds = paginatedRows.map((n) => n._id);
-    if (event.target.checked) {
-      // Add current page IDs to existing selection (Union)
-      const newSelected = Array.from(new Set([...selected, ...currentIds]));
-      setSelected(newSelected);
-    } else {
-      // Remove current page IDs from existing selection (Difference)
-      const newSelected = selected.filter((id) => !currentIds.includes(id));
-      setSelected(newSelected);
-    }
+    if (event.target.checked) setSelected(Array.from(new Set([...selected, ...currentIds])));
+    else setSelected(selected.filter((id) => !currentIds.includes(id)));
   };
 
   const handleClick = (_: any, id: string) => {
     const selectedIndex = selected.indexOf(id);
     let newSelected: string[] = [];
-
-    if (selectedIndex === -1) {
-      newSelected = newSelected.concat(selected, id);
-    } else if (selectedIndex === 0) {
-      newSelected = newSelected.concat(selected.slice(1));
-    } else if (selectedIndex === selected.length - 1) {
-      newSelected = newSelected.concat(selected.slice(0, -1));
-    } else if (selectedIndex > 0) {
-      newSelected = newSelected.concat(
-        selected.slice(0, selectedIndex),
-        selected.slice(selectedIndex + 1),
-      );
-    }
+    if (selectedIndex === -1) newSelected = newSelected.concat(selected, id);
+    else if (selectedIndex === 0) newSelected = newSelected.concat(selected.slice(1));
+    else if (selectedIndex === selected.length - 1) newSelected = newSelected.concat(selected.slice(0, -1));
+    else if (selectedIndex > 0) newSelected = newSelected.concat(selected.slice(0, selectedIndex), selected.slice(selectedIndex + 1));
     setSelected(newSelected);
   };
 
-  // --- Bulk Print Function (A4 Grid 2x5) ---
+  // Actions
   const handleBulkPrint = () => {
-    const targets = rows.filter(r => selected.includes(r._id));
+    const targets = rows?.filter(r => selected.includes(r._id)) || [];
     if (targets.length === 0) return;
 
     const w = window.open('', '_blank');
@@ -199,32 +191,9 @@ export default function OrdersList() {
           <style>
             @page { size: A4; margin: 0; }
             body { margin: 0; padding: 0; font-family: 'Sarabun', sans-serif; -webkit-print-color-adjust: exact; }
-            
-            .page {
-              width: 210mm;
-              height: 295mm; 
-              box-sizing: border-box;
-              padding: 5mm;
-              display: grid;
-              grid-template-columns: 1fr 1fr;
-              grid-template-rows: repeat(5, 1fr);
-              gap: 5mm;
-              page-break-after: always;
-            }
+            .page { width: 210mm; height: 295mm; box-sizing: border-box; padding: 5mm; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(5, 1fr); gap: 5mm; page-break-after: always; }
             .page:last-child { page-break-after: auto; }
-
-            .label {
-              border: 1px dashed #ccc;
-              border-radius: 8px;
-              padding: 10px;
-              display: flex;
-              flex-direction: column;
-              justify-content: space-between;
-              overflow: hidden;
-              background: #fff;
-              position: relative;
-            }
-
+            .label { border: 1px dashed #ccc; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; background: #fff; position: relative; }
             .header { font-size: 10px; color: #666; display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 5px; }
             .content { flex-grow: 1; }
             .to-label { font-size: 12px; font-weight: bold; color: #000; margin-bottom: 4px; }
@@ -264,15 +233,22 @@ export default function OrdersList() {
         </body>
       </html>
     `;
-
     w.document.write(htmlContent);
     w.document.close();
   };
 
-  // --- Export Excel ---
-  const exportExcel = () => {
+  const exportExcel = async () => {
+    if(!rows || rows.length === 0) return showError("ไม่พบข้อมูล", "ไม่มีรายการออเดอร์ให้ Export");
+    
+    const confirm = await showConfirm("ยืนยันการ Export?", `ต้องการดาวน์โหลดข้อมูล ${rows.length} รายการเป็นไฟล์ Excel หรือไม่?`, "ดาวน์โหลด");
+    if(!confirm) return;
+
     setExporting(true);
+    showLoading("กำลังสร้างไฟล์ Excel", "ระบบกำลังรวบรวมข้อมูล กรุณารอสักครู่...");
+
     try {
+        await new Promise(r => setTimeout(r, 800)); 
+        
         const dataToExport = rows.map((r, index) => {
             const itemsStr = (r.items || []).map((item: any, idx: number) => {
                 const details = [];
@@ -301,53 +277,112 @@ export default function OrdersList() {
 
         const wb = XLSX.utils.book_new();
         const ws = XLSX.utils.json_to_sheet(dataToExport);
-
         ws['!cols'] = [
             { wch: 6 }, { wch: 18 }, { wch: 12 }, { wch: 10 }, { wch: 25 },
             { wch: 15 }, { wch: 60 }, { wch: 12 }, { wch: 15 }, { wch: 15 },
             { wch: 15 }, { wch: 18 }, { wch: 40 },
         ];
-
         XLSX.utils.book_append_sheet(wb, ws, "Orders");
         XLSX.writeFile(wb, `Orders_Export_${new Date().toISOString().slice(0, 10)}.xlsx`);
+        
+        swal.close();
+        showSuccess("ดาวน์โหลดสำเร็จ", "ไฟล์ Excel ถูกบันทึกเรียบร้อยแล้ว");
     } catch (err) {
         console.error("Export Error:", err);
-        alert("❌ ไม่สามารถส่งออกไฟล์ได้");
+        showError("เกิดข้อผิดพลาด", "ไม่สามารถสร้างไฟล์ Excel ได้");
     } finally {
         setExporting(false);
     }
   };
 
-  // --- Other Actions ---
   const deleteOrder = async (id: string) => {
-    if (!confirm("⚠️ ยืนยันการลบออเดอร์นี้? \nข้อมูลจะหายไปจากระบบทันที")) return;
+    const isConfirmed = await showConfirm(
+        "ยืนยันการลบออเดอร์?", 
+        "ข้อมูลจะหายไปจากระบบทันทีและไม่สามารถกู้คืนได้", 
+        "ลบข้อมูล", 
+        "ยกเลิก"
+    );
+    if (!isConfirmed) return;
+
+    showLoading("กำลังลบข้อมูล...");
+
     try {
         const res = await fetch(`${API}/orders/${id}`, {
             method: "DELETE",
             headers: { Authorization: `Bearer ${getToken()}` }
         });
-        if(res.ok) refreshOrders();
-        else alert("ลบไม่สำเร็จ");
-    } catch { alert("เกิดข้อผิดพลาด"); }
+        if(res.ok) {
+            await refreshOrders();
+            swal.close();
+            showSuccess("ลบเรียบร้อย", "ออเดอร์ถูกลบออกจากระบบแล้ว");
+        }
+        else {
+             swal.close();
+             showError("ลบไม่สำเร็จ", "กรุณาลองใหม่อีกครั้ง");
+        }
+    } catch { 
+        swal.close();
+        showError("เกิดข้อผิดพลาด", "ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์");
+    }
   };
 
   const sendMessage = async () => {
     if(!msgDlg.order) return;
+    setMsgDlg({open:false});
+    
+    showLoading("กำลังส่งข้อความ", "กำลังส่งข้อความไปยัง LINE ลูกค้า...");
+
     try {
-        await fetch(`${API}/orders/${msgDlg.order._id}/push`, { 
+        const res = await fetch(`${API}/orders/${msgDlg.order._id}/push`, { 
            method:"POST", 
            headers:{"Content-Type":"application/json", Authorization:`Bearer ${getToken()}`}, 
            body:JSON.stringify({text:msgText})
         });
-        alert("✅ ส่งข้อความเรียบร้อย"); 
-        setMsgDlg({open:false}); setMsgText("");
-    } catch { alert("❌ ส่งข้อความไม่สำเร็จ"); }
+        if (res.ok) {
+            swal.close();
+            showSuccess("ส่งเรียบร้อย", "ลูกค้าได้รับข้อความทาง LINE แล้ว");
+            setMsgText("");
+        } else {
+            throw new Error();
+        }
+    } catch { 
+        swal.close();
+        showError("ส่งไม่สำเร็จ", "ตรวจสอบว่าลูกค้าได้แอด LINE Official หรือไม่");
+    }
   };
 
-  // --- Main Render ---
   return (
     <Box>
-      {/* Header Section */}
+      {/* 1. Backdrop สำหรับ First Load */}
+      <Backdrop
+        sx={{ 
+            color: '#fff', 
+            zIndex: (theme) => theme.zIndex.drawer + 1,
+            flexDirection: 'column',
+            gap: 2,
+            bgcolor: 'rgba(255, 255, 255, 0.9)',
+            backdropFilter: 'blur(4px)'
+        }}
+        open={loading && rows === null}
+      >
+        <CircularProgress color="primary" size={60} thickness={4} />
+        <Typography variant="h6" color="text.primary" fontWeight={700}>
+            กำลังดึงข้อมูลออเดอร์...
+        </Typography>
+      </Backdrop>
+
+      {/* 2. LinearProgress สำหรับ Background Refresh */}
+      <Fade in={loading && rows !== null} unmountOnExit>
+        <LinearProgress 
+            sx={{ 
+                position: 'fixed', top: 0, left: 0, right: 0, zIndex: 2000, 
+                height: 3, bgcolor: alpha(theme.palette.primary.main, 0.2), 
+                '& .MuiLinearProgress-bar': { bgcolor: theme.palette.primary.main } 
+            }} 
+        />
+      </Fade>
+
+      {/* Header */}
       <Stack direction={{ xs:"column", md:"row" }} justifyContent="space-between" alignItems="center" mb={4} spacing={2}>
         <Stack direction="row" spacing={2} alignItems="center">
             <Box p={1.5} borderRadius={3} bgcolor={alpha(theme.palette.primary.main, 0.1)} color="primary.main">
@@ -368,7 +403,7 @@ export default function OrdersList() {
                 พิมพ์ใบปะหน้า ({selected.length})
               </Button>
            )}
-           <Button variant="outlined" color="inherit" startIcon={<RefreshIcon/>} onClick={refreshOrders} sx={{ borderRadius: 2 }}>รีโหลด</Button>
+           <Button variant="outlined" color="inherit" startIcon={<RefreshIcon/>} onClick={()=>refreshOrders(true)} sx={{ borderRadius: 2 }}>รีโหลด</Button>
            <Button 
                 variant="contained" 
                 color="success" 
@@ -388,7 +423,9 @@ export default function OrdersList() {
             <CardContent sx={{ display: 'flex', alignItems: 'center', p: 2, '&:last-child': { pb: 2 } }}>
                <ShoppingBagIcon sx={{ fontSize: 32, color: 'text.secondary', mr: 2 }} />
                <Box>
-                  <Typography variant="h5" fontWeight={800}>{stats.total}</Typography>
+                  <Typography variant="h5" fontWeight={800}>
+                      {rows === null ? <Skeleton width={40} /> : stats.total}
+                  </Typography>
                   <Typography variant="caption" color="text.secondary">ออเดอร์ทั้งหมด</Typography>
                </Box>
             </CardContent>
@@ -397,7 +434,9 @@ export default function OrdersList() {
             <CardContent sx={{ display: 'flex', alignItems: 'center', p: 2, '&:last-child': { pb: 2 } }}>
                <WarningAmberIcon sx={{ fontSize: 32, color: 'warning.main', mr: 2 }} />
                <Box>
-                  <Typography variant="h5" fontWeight={800} color="warning.dark">{stats.pendingCheck}</Typography>
+                  <Typography variant="h5" fontWeight={800} color="warning.dark">
+                      {rows === null ? <Skeleton width={40} /> : stats.pendingCheck}
+                  </Typography>
                   <Typography variant="caption" color="warning.dark">รอตรวจสลิป</Typography>
                </Box>
             </CardContent>
@@ -406,14 +445,16 @@ export default function OrdersList() {
             <CardContent sx={{ display: 'flex', alignItems: 'center', p: 2, '&:last-child': { pb: 2 } }}>
                <LocalShippingIcon sx={{ fontSize: 32, color: 'info.main', mr: 2 }} />
                <Box>
-                  <Typography variant="h5" fontWeight={800} color="info.dark">{stats.toShip}</Typography>
+                  <Typography variant="h5" fontWeight={800} color="info.dark">
+                      {rows === null ? <Skeleton width={40} /> : stats.toShip}
+                  </Typography>
                   <Typography variant="caption" color="info.dark">รอจัดส่ง</Typography>
                </Box>
             </CardContent>
          </Card>
       </Stack>
 
-      {/* Tabs & Search */}
+      {/* Filter Tabs */}
       <Paper sx={{ mb: 3, borderRadius: 3, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
         <Box sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: alpha(theme.palette.primary.main, 0.04) }}>
             <Tabs 
@@ -422,9 +463,9 @@ export default function OrdersList() {
                 sx={{ '& .MuiTab-root': { fontWeight: 700, minHeight: 60 } }}
             >
                 <Tab label="ทั้งหมด" value="ALL" />
-                <Tab label={`รอตรวจสลิป (${stats.pendingCheck})`} value="PENDING_CHECK" icon={<WarningAmberIcon fontSize="small"/>} iconPosition="start" />
+                <Tab label={`รอตรวจสลิป (${rows ? stats.pendingCheck : '-'})`} value="PENDING_CHECK" icon={<WarningAmberIcon fontSize="small"/>} iconPosition="start" />
                 <Tab label="รอโอน" value="WAITING_PAY" />
-                <Tab label={`ต้องจัดส่ง (${stats.toShip})`} value="TO_SHIP" icon={<LocalShippingIcon fontSize="small"/>} iconPosition="start" />
+                <Tab label={`ต้องจัดส่ง (${rows ? stats.toShip : '-'})`} value="TO_SHIP" icon={<LocalShippingIcon fontSize="small"/>} iconPosition="start" />
                 <Tab label="กำลังส่ง" value="SHIPPING" />
                 <Tab label="สำเร็จแล้ว" value="COMPLETED" />
                 <Tab label="ยกเลิก/มีปัญหา" value="CANCELLED" />
@@ -442,7 +483,7 @@ export default function OrdersList() {
         </Box>
       </Paper>
 
-      {/* Table Section */}
+      {/* Table */}
       <Paper sx={{ width: '100%', overflow: 'hidden', borderRadius: 3, boxShadow: '0 4px 20px rgba(0,0,0,0.05)', border: '1px solid', borderColor: 'divider' }}>
         <Table>
           <TableHead sx={{ bgcolor: '#FAFAFA' }}>
@@ -464,10 +505,15 @@ export default function OrdersList() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {loading ? (
-               <TableRow><TableCell colSpan={7} align="center" sx={{ py: 6 }}><RefreshIcon sx={{ animation: 'spin 1s linear infinite' }} /> กำลังโหลด...</TableCell></TableRow>
+            {(loading && rows === null) ? (
+               <TableRow><TableCell colSpan={7} sx={{height: 200}} /></TableRow>
             ) : paginatedRows.length === 0 ? (
-               <TableRow><TableCell colSpan={7} align="center" sx={{ py: 6, color: 'text.secondary' }}>ไม่พบข้อมูลตามเงื่อนไข</TableCell></TableRow>
+               <TableRow>
+                   <TableCell colSpan={7} align="center" sx={{ py: 10, color: 'text.secondary' }}>
+                       <InboxIcon sx={{ fontSize: 60, opacity: 0.2, mb: 1 }} />
+                       <Typography>ไม่พบข้อมูลตามเงื่อนไข</Typography>
+                   </TableCell>
+               </TableRow>
             ) : (
                paginatedRows.map((r, i) => {
                  const isSelected = selected.indexOf(r._id) !== -1;
@@ -555,7 +601,6 @@ export default function OrdersList() {
           rowsPerPage={rowsPerPage}
           page={page}
           onPageChange={(_, p) => setPage(p)}
-          // ✅ FIX: เมื่อเปลี่ยนจำนวนแถว ให้บันทึกลง LocalStorage
           onRowsPerPageChange={(e) => { 
               const val = +e.target.value;
               setRowsPerPage(val); 

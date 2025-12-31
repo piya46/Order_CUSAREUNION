@@ -1,4 +1,4 @@
-// src/components/Layout.tsx
+// frontend/adminweb/src/components/Layout.tsx
 import { useState, useMemo, useEffect } from "react";
 import { 
   Box, CssBaseline, AppBar, Toolbar, IconButton, Typography, Avatar, 
@@ -19,6 +19,7 @@ import InventoryIcon from "@mui/icons-material/Inventory";
 import SideNav, { SIDE_WIDTH } from "./SideNav";
 import { adminLogout } from "../api/admin";
 import { getUser as readUser, clearSession } from "../lib/session";
+import { showConfirm, showSuccess } from "../lib/sweetalert"; 
 
 const API = import.meta.env.VITE_API_URL || "/api";
 
@@ -30,7 +31,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const name = user?.username || "admin";
   const initial = name?.[0]?.toUpperCase() || "A";
 
-  // --- 🔔 Notification Logic ---
+  // --- Notification Logic ---
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [notis, setNotis] = useState<{type: 'slip'|'order'|'stock', count: number, label: string, path: string}[]>([]);
   const openNoti = Boolean(anchorEl);
@@ -40,14 +41,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       const token = localStorage.getItem("aw_token");
       if(!token) return;
 
-      // 1. ดึงออเดอร์ (เช็คสลิป & รอโอน)
       const resOrder = await fetch(`${API}/orders`, { headers: { Authorization: `Bearer ${token}` } });
       const orders = resOrder.ok ? await resOrder.json() : [];
       
       const pendingSlip = Array.isArray(orders) ? orders.filter((o:any) => o.paymentStatus === 'PENDING_PAYMENT').length : 0;
       const waitingPay = Array.isArray(orders) ? orders.filter((o:any) => o.paymentStatus === 'WAITING').length : 0;
 
-      // 2. ดึงสินค้า (เช็คใกล้หมด) - ใช้ endpoint inventory
       const resProd = await fetch(`${API}/products/inventory`, { headers: { Authorization: `Bearer ${token}` } });
       const products = resProd.ok ? await resProd.json() : [];
       let lowStockCount = 0;
@@ -59,7 +58,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
          });
       }
 
-      // รวมแจ้งเตือน
       const newNotis: any[] = [];
       if (pendingSlip > 0) newNotis.push({ type: 'slip', count: pendingSlip, label: 'สลิปโอนเงินรอตรวจสอบ', path: '/orders?tab=PENDING_CHECK' });
       if (waitingPay > 0) newNotis.push({ type: 'order', count: waitingPay, label: 'ออเดอร์ใหม่ / รอโอน', path: '/orders?tab=WAITING_PAY' });
@@ -70,7 +68,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     } catch (e) { console.error("Noti fetch error", e); }
   };
 
-  // Poll ทุก 30 วินาที
   useEffect(() => {
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 30000);
@@ -83,9 +80,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   };
 
   const onLogout = async () => {
-    try { await adminLogout(); } catch {}
-    clearSession();
-    nav("/login", { replace: true });
+    const confirm = await showConfirm('ออกจากระบบ', 'คุณต้องการออกจากระบบใช่หรือไม่?', 'ใช่, ออกจากระบบ');
+    if (confirm) {
+        try { await adminLogout(); } catch {}
+        clearSession();
+        nav("/login", { replace: true });
+        showSuccess('ออกจากระบบสำเร็จ', 'ไว้พบกันใหม่ครับ 👋');
+    }
   };
 
   return (
@@ -114,7 +115,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </IconButton>
 
           <Typography variant="h6" sx={{ flex: 1, fontWeight: 800, color: 'primary.main', letterSpacing: 0.5 }}>
-            {import.meta.env.VITE_APP_NAME || "Admin Panel"}
+            ระบบจัดการจัดสั่งซื้อเสื้อ (Admin)
           </Typography>
 
           <Stack direction="row" spacing={1.5} alignItems="center">
@@ -122,7 +123,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                <Chip size="small" label="DEV" color="warning" sx={{ fontWeight: "bold", borderRadius: 1 }} />
             )}
             
-            {/* 🔔 Notification Bell */}
             <Tooltip title="การแจ้งเตือน">
               <IconButton 
                 onClick={(e) => setAnchorEl(e.currentTarget)}
@@ -137,7 +137,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </IconButton>
             </Tooltip>
 
-            {/* Notification Dropdown */}
             <Menu
               anchorEl={anchorEl}
               open={openNoti}

@@ -1,8 +1,9 @@
-// src/pages/Dashboard.tsx
+// frontend/adminweb/src/pages/Dashboard.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Box, Grid, Paper, Stack, Typography, Chip, Divider, Skeleton, Button,
-  Alert, Tooltip, IconButton, LinearProgress, List, ListItem, ListItemText, ListItemIcon, ListItemButton
+  Box, Grid, Paper, Stack, Typography, Chip, Skeleton, Button,
+  Alert, Tooltip, IconButton, LinearProgress, List, ListItem, ListItemText, ListItemButton, Fade,
+  Backdrop, CircularProgress, ButtonBase, alpha, useTheme
 } from "@mui/material";
 
 // Icons
@@ -11,11 +12,6 @@ import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import TaskAltIcon from "@mui/icons-material/TaskAlt";
-import Inventory2Icon from "@mui/icons-material/Inventory2";
-import AddBoxIcon from "@mui/icons-material/AddBox";
-import MoveDownIcon from "@mui/icons-material/MoveDown";
-import StackedLineChartIcon from "@mui/icons-material/StackedLineChart";
-import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import CategoryIcon from "@mui/icons-material/Category";
 import PeopleAltIcon from "@mui/icons-material/PeopleAlt";
 import SecurityIcon from "@mui/icons-material/Security";
@@ -26,9 +22,9 @@ import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import StoreIcon from "@mui/icons-material/Store";
 
 import { Link } from "react-router-dom";
-import { getToken } from "../lib/session";
+import { getToken, getUser } from "../lib/session"; // [แก้ไข] ใช้ getUser เพื่อดึงชื่อ
 import { parseJwt, type AdminClaims } from "../lib/jwt";
-import { alpha } from "@mui/material/styles";
+import { showLoading, showError, swal } from "../lib/sweetalert"; 
 
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer 
@@ -37,6 +33,7 @@ import { motion } from "framer-motion";
 
 const API = import.meta.env.VITE_API_URL || "/api";
 
+// --- Types ---
 type Order = {
   _id: string;
   orderNo: string;
@@ -50,37 +47,36 @@ type Order = {
   createdAt: string;
 };
 
-type UserPayload = {
-  username?: string;
-  roles?: string[];
-  permissions?: string[];
-  name?: string;
-};
-
+// --- Helpers ---
 function hasPerm(p: string) {
   try {
-    const u: UserPayload = JSON.parse(localStorage.getItem("aw_user") || "{}");
+    const u = getUser(); 
     return Array.isArray(u.permissions) && u.permissions.includes(p);
   } catch { return false; }
 }
+
 function getExpMsFromToken(): number | null {
   const claims = parseJwt<AdminClaims>(getToken());
   return claims?.exp ? claims.exp * 1000 : null;
 }
 
+// --- Components ---
 const Greeting = ({ user }: { user: any }) => {
   const hour = new Date().getHours();
   let text = "สวัสดีครับ";
-  let icon = "🐯"; // ใช้เสือน้อย
+  let icon = "🐯"; 
   if (hour < 12) { text = "อรุณสวัสดิ์"; icon = "🌤️"; }
   else if (hour < 18) { text = "สวัสดีตอนบ่าย"; icon = "☀️"; }
   else { text = "สวัสดีตอนเย็น"; icon = "🌙"; }
+
+  // [แก้ไข] การดึงชื่อแสดงผล: ชื่อจริง -> ชื่อผู้ใช้ -> 'Admin'
+  const displayName = user?.name || user?.username || "Admin";
 
   return (
     <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} style={{ marginBottom: 24 }}>
         <Stack direction="row" alignItems="center" spacing={1}>
              <Typography variant="h4" fontWeight={900} sx={{ color: '#212121' }}>
-                {icon} {text}, คุณ{user?.name || "Admin"}!
+                {icon} {text}, คุณ{displayName}!
             </Typography>
         </Stack>
         <Typography color="text.secondary" fontWeight={500}>
@@ -91,9 +87,14 @@ const Greeting = ({ user }: { user: any }) => {
 };
 
 export default function Dashboard() {
-  const [orders, setOrders] = useState<Order[] | null>(null);
+  const theme = useTheme();
+  
+  // [1] Data State เริ่มต้นเป็น null (เพื่อบอกว่ายังไม่โหลด)
+  const [orders, setOrders] = useState<Order[] | null>(null); 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  
+  // Timer State
   const [leftMs, setLeftMs] = useState<number | null>(() => {
     const expMs = getExpMsFromToken();
     return expMs ? expMs - Date.now() : null;
@@ -101,24 +102,42 @@ export default function Dashboard() {
 
   const abortRef = useRef<AbortController | null>(null);
 
-  const load = async () => {
+  const load = async (isManual = false) => {
     setErr(null);
-    setLoading(true);
+    setLoading(true); // Always set loading to true at start
+    
+    // ถ้าเป็นการกดปุ่มรีเฟรชเอง ให้โชว์ Popup
+    // if (isManual) showLoading("กำลังโหลดข้อมูลล่าสุด..."); // Remove manual popup since backdrop covers it
+
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
+
     try {
+      // Simulate delay to show loading state
+      await new Promise(r => setTimeout(r, 500));
+
       const res = await fetch(`${API}/orders`, {
         headers: { Authorization: `Bearer ${getToken()}` },
         signal: ac.signal
       });
+
       if (!res.ok) throw new Error((await res.json())?.error || "โหลดข้อมูลไม่สำเร็จ");
       const data = await res.json();
+      
       setOrders(Array.isArray(data) ? data : []);
+      
+      if (isManual) swal.close();
+
     } catch (e: any) {
       if (e?.name !== "AbortError") {
-        setErr(e?.message || "เกิดข้อผิดพลาดในการโหลดข้อมูล");
-        setOrders([]);
+        const msg = e?.message || "เกิดข้อผิดพลาดในการโหลดข้อมูล";
+        setErr(msg);
+        
+        // ถ้าโหลดไม่ผ่านแต่เป็นครั้งแรก ให้เซ็ตเป็น array ว่างเพื่อให้หน้าเว็บแสดงผลได้
+        if(orders === null) setOrders([]); 
+        
+        if (isManual) showError("โหลดข้อมูลไม่สำเร็จ", msg);
       }
     } finally {
       setLoading(false);
@@ -126,24 +145,26 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    load();
-    const iv = setInterval(() => { if (document.visibilityState === "visible") load(); }, 30000);
-    const onVis = () => { if (document.visibilityState === "visible") load(); };
+    load(false); 
+    const iv = setInterval(() => { if (document.visibilityState === "visible") load(false); }, 30000);
+    const onVis = () => { if (document.visibilityState === "visible") load(false); };
     document.addEventListener("visibilitychange", onVis);
     return () => { clearInterval(iv); document.removeEventListener("visibilitychange", onVis); abortRef.current?.abort(); };
   }, []);
 
+  // Shortcut Key: R to Refresh
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() === "r" && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
-        load();
+        load(true);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Session Timer
   useEffect(() => {
     const t = setInterval(() => {
       const expMs = getExpMsFromToken();
@@ -153,6 +174,7 @@ export default function Dashboard() {
     return () => clearInterval(t);
   }, []);
 
+  // --- Statistics Logic ---
   const kpi = useMemo(() => {
     const list = orders || [];
     const total = list.length;
@@ -176,8 +198,7 @@ export default function Dashboard() {
     });
     const slipWarn = list.filter((o:any) => (o.slipReviewCount || 0) >= 2 && o.paymentStatus !== 'PAYMENT_CONFIRMED');
     const shipNoTn = list.filter(o => o.orderStatus === 'SHIPPING' && !o.trackingNumber);
-    const rejected = list.filter(o => o.paymentStatus === 'REJECTED');
-    return { expSoon, slipWarn, shipNoTn, rejected };
+    return { expSoon, slipWarn, shipNoTn };
   }, [orders]);
 
   const series = useMemo(() => {
@@ -202,31 +223,62 @@ export default function Dashboard() {
   const mm = leftSec != null ? Math.floor(leftSec / 60) : null;
   const ss = leftSec != null ? (leftSec % 60).toString().padStart(2, "0") : null;
 
+  // เมนูด่วนพร้อมสีและพื้นหลัง
   const menuShortcuts = [
-    hasPerm("order:manage") && { to: "/orders", icon: <ShoppingCartIcon />, label: "ออเดอร์", color: "primary" as const },
-    hasPerm("product:manage") && { to: "/products", icon: <CategoryIcon />, label: "สินค้า", color: "secondary" as const },
-    hasPerm("po:manage") && { to: "/po", icon: <ReceiptLongIcon />, label: "ใบสั่งซื้อ", color: "success" as const },
-    hasPerm("po:manage") && { to: "/suppliers", icon: <StoreIcon />, label: "ผู้ขาย", color: "info" as const },
-    hasPerm("receiving:manage") && { to: "/receiving", icon: <WarehouseIcon />, label: "รับของ", color: "warning" as const },
-    hasPerm("user:manage") && { to: "/users", icon: <PeopleAltIcon />, label: "ผู้ใช้", color: "error" as const },
-    hasPerm("role:manage") && { to: "/roles", icon: <SecurityIcon />, label: "สิทธิ์", color: "default" as const },
-    hasPerm("issue:manage") && { to: "/issues", icon: <BugReportIcon />, label: "ปัญหา", color: "error" as const },
-    hasPerm("audit:manage") && { to: "/audit", icon: <ArticleIcon />, label: "Audit", color: "primary" as const },
-  ].filter(Boolean) as {to: string; icon: JSX.Element; label: string; color: any}[];
+    hasPerm("order:manage") && { to: "/orders", icon: <ReceiptLongIcon />, label: "จัดการออเดอร์", color: theme.palette.primary.main, bg: alpha(theme.palette.primary.main, 0.1) },
+    hasPerm("product:manage") && { to: "/products", icon: <CategoryIcon />, label: "จัดการสินค้า", color: theme.palette.secondary.main, bg: alpha(theme.palette.secondary.main, 0.1) },
+    hasPerm("po:manage") && { to: "/po", icon: <ArticleIcon />, label: "ใบสั่งซื้อ (PO)", color: theme.palette.success.main, bg: alpha(theme.palette.success.main, 0.1) },
+    hasPerm("po:manage") && { to: "/suppliers", icon: <StoreIcon />, label: "ข้อมูลผู้ขาย", color: theme.palette.info.main, bg: alpha(theme.palette.info.main, 0.1) },
+    hasPerm("receiving:manage") && { to: "/receiving", icon: <WarehouseIcon />, label: "รับสินค้าเข้า", color: theme.palette.warning.main, bg: alpha(theme.palette.warning.main, 0.1) },
+    hasPerm("user:manage") && { to: "/users", icon: <PeopleAltIcon />, label: "ผู้ใช้งานระบบ", color: theme.palette.error.main, bg: alpha(theme.palette.error.main, 0.1) },
+    hasPerm("role:manage") && { to: "/roles", icon: <SecurityIcon />, label: "สิทธิ์การใช้งาน", color: theme.palette.text.secondary, bg: alpha(theme.palette.text.secondary, 0.1) },
+    hasPerm("issue:manage") && { to: "/issues", icon: <BugReportIcon />, label: "แจ้งปัญหา", color: theme.palette.error.dark, bg: alpha(theme.palette.error.dark, 0.1) },
+  ].filter(Boolean) as any[];
 
   return (
-    <Box
-      p={{ xs: 2, md: 3 }}
-      sx={{
-        borderRadius: 3
-      }}
-    >
+    <Box p={{ xs: 2, md: 3 }} sx={{ borderRadius: 3 }}>
+      
+      {/* [2] Backdrop สำหรับการโหลดทุกครั้ง */}
+      <Backdrop
+        sx={{ 
+            color: '#fff', 
+            zIndex: (theme) => theme.zIndex.drawer + 1,
+            flexDirection: 'column',
+            gap: 2,
+            bgcolor: 'rgba(255, 255, 255, 0.9)', // พื้นหลังขาวจางๆ
+            backdropFilter: 'blur(4px)'
+        }}
+        open={loading} // แสดงเมื่อ loading = true ทุกครั้ง
+      >
+        <CircularProgress color="primary" size={60} thickness={4} />
+        <Typography variant="h6" color="text.primary" fontWeight={700}>
+            กำลังเตรียมข้อมูล Dashboard...
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+            กรุณารอสักครู่ พี่เสือกำลังรวบรวมข้อมูลให้อยู่ครับ 🐅
+        </Typography>
+      </Backdrop>
+
+      {/* [3] LinearProgress สำหรับการโหลดเบื้องหลัง (Background Refresh) */}
+      <Fade in={loading && orders !== null} unmountOnExit>
+        <LinearProgress 
+            sx={{ 
+                position: 'fixed', top: 0, left: 0, right: 0, zIndex: 2000, 
+                height: 3, bgcolor: alpha(theme.palette.primary.main, 0.2), 
+                '& .MuiLinearProgress-bar': { bgcolor: theme.palette.primary.main } 
+            }} 
+        />
+      </Fade>
+
+      {/* Header */}
       <Stack direction="row" alignItems="center" justifyContent="space-between" mb={2}>
         <Stack direction="row" spacing={1.5} alignItems="center">
           <Typography variant="h5" fontWeight={900} color="primary.dark">Dashboard</Typography>
           <Chip size="small" label={mode} color={mode === "PROD" ? "success" : "warning"} />
-          <Tooltip title="รีเฟรช">
-            <IconButton onClick={load} size="small" sx={{ bgcolor: 'white' }}><RefreshIcon /></IconButton>
+          <Tooltip title="รีเฟรชข้อมูล">
+            <IconButton onClick={() => load(true)} size="small" sx={{ bgcolor: 'white', boxShadow: 1 }}>
+                <RefreshIcon color={loading ? "disabled" : "action"} sx={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+            </IconButton>
           </Tooltip>
         </Stack>
         {leftSec != null && (
@@ -237,11 +289,13 @@ export default function Dashboard() {
         )}
       </Stack>
 
-      <Greeting user={JSON.parse(localStorage.getItem("aw_user") || "{}")} />
+      {/* [4] เรียกใช้งาน Greeting โดยส่ง getUser() เพื่อให้ได้ชื่อจริง */}
+      <Greeting user={getUser()} />
 
-      {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
+      {err && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>{err}</Alert>}
 
       <Grid container spacing={3}>
+        {/* Left Column */}
         <Grid item xs={12} md={8}>
           <Grid container spacing={2}>
             {/* KPI Cards */}
@@ -255,13 +309,13 @@ export default function Dashboard() {
                     <Paper 
                         elevation={0}
                         sx={{ 
-                            p: 2.5, 
-                            height: '100%', 
-                            bgcolor: 'white',
-                            border: '1px solid',
-                            borderColor: 'divider',
-                            transition: 'transform 0.2s',
-                            '&:hover': { transform: 'translateY(-4px)', borderColor: 'primary.main' }
+                            p: 2.5, height: '100%', bgcolor: 'white', border: '1px solid', borderColor: 'divider',
+                            transition: 'all 0.2s', 
+                            '&:hover': { 
+                                transform: 'translateY(-4px)', 
+                                borderColor: theme.palette.primary.main, 
+                                boxShadow: '0 8px 24px rgba(0,0,0,0.08)' 
+                            }
                         }}
                     >
                         <Stack spacing={1.5}>
@@ -270,7 +324,7 @@ export default function Dashboard() {
                                 {k.icon}
                             </Stack>
                             <Typography variant="h4" fontWeight={800} sx={{ color: k.color }}>
-                                {loading ? <Skeleton width={60} /> : k.val.toLocaleString()}
+                                {(loading && orders === null) ? <Skeleton width="60%" /> : k.val.toLocaleString()}
                             </Typography>
                         </Stack>
                     </Paper>
@@ -285,15 +339,15 @@ export default function Dashboard() {
                     <Chip label={`รวม ฿${kpi.revenue.toLocaleString()}`} color="primary" sx={{ fontWeight: 800 }} />
                 </Stack>
                 <Box height={280}>
-                  {loading ? (
-                    <Skeleton variant="rectangular" height="100%" />
+                  {(loading && orders === null) ? (
+                    <Skeleton variant="rectangular" height="100%" sx={{ borderRadius: 2 }} />
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={series}>
                         <defs>
                           <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#FFB300" stopOpacity={0.8}/>
-                            <stop offset="95%" stopColor="#FFB300" stopOpacity={0}/>
+                            <stop offset="5%" stopColor={theme.palette.primary.main} stopOpacity={0.8}/>
+                            <stop offset="95%" stopColor={theme.palette.primary.main} stopOpacity={0}/>
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.3} />
@@ -303,7 +357,7 @@ export default function Dashboard() {
                             contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 8px 24px rgba(0,0,0,0.1)' }}
                             formatter={(value: any) => [`฿${(value || 0).toLocaleString()}`, 'ยอดขาย']}
                         />
-                        <Area type="monotone" dataKey="value" stroke="#FFB300" strokeWidth={4} fillOpacity={1} fill="url(#colorValue)" />
+                        <Area type="monotone" dataKey="value" stroke={theme.palette.primary.main} strokeWidth={4} fillOpacity={1} fill="url(#colorValue)" />
                       </AreaChart>
                     </ResponsiveContainer>
                   )}
@@ -317,77 +371,82 @@ export default function Dashboard() {
         <Grid item xs={12} md={4}>
           <Stack spacing={3}>
             {/* Action Required */}
-            <Paper elevation={0} sx={{ p: 2, bgcolor: '#FFF8E1', border: '1px solid #FFE082' }}>
+            <Paper elevation={0} sx={{ p: 2, bgcolor: '#FFF8E1', border: '1px solid #FFE082', borderRadius: 3 }}>
                 <Stack direction="row" spacing={1} alignItems="center" mb={2}>
                     <WarningAmberIcon sx={{ color: '#FF8F00' }} />
                     <Typography fontWeight={800} color="#FF8F00">ต้องดูแลด่วน</Typography>
                 </Stack>
-                {loading ? <Skeleton height={100}/> : (
+                {(loading && orders === null) ? <Skeleton height={100} sx={{ borderRadius: 2 }}/> : (
                     <Stack spacing={1}>
-                        <Chip 
-                            size="small" 
-                            label={`รอชำระใกล้หมดเวลา: ${attention.expSoon.length}`} 
-                            sx={{ bgcolor: 'white', fontWeight: 600, justifyContent: 'flex-start' }} 
-                            icon={attention.expSoon.length > 0 ? <WarningAmberIcon fontSize="small"/> : undefined}
-                        />
-                        <Chip 
-                            size="small" 
-                            label={`สลิปมีปัญหา: ${attention.slipWarn.length}`} 
-                            sx={{ bgcolor: 'white', fontWeight: 600, justifyContent: 'flex-start' }} 
-                        />
-                         <Chip 
-                            size="small" 
-                            label={`ไม่มีเลขพัสดุ: ${attention.shipNoTn.length}`} 
-                            sx={{ bgcolor: 'white', fontWeight: 600, justifyContent: 'flex-start' }} 
-                        />
+                        <Chip size="small" label={`รอชำระใกล้หมดเวลา: ${attention.expSoon.length}`} sx={{ bgcolor: 'white', fontWeight: 600, justifyContent: 'flex-start' }} icon={attention.expSoon.length > 0 ? <WarningAmberIcon fontSize="small"/> : undefined} />
+                        <Chip size="small" label={`สลิปมีปัญหา: ${attention.slipWarn.length}`} sx={{ bgcolor: 'white', fontWeight: 600, justifyContent: 'flex-start' }} />
+                        <Chip size="small" label={`ไม่มีเลขพัสดุ: ${attention.shipNoTn.length}`} sx={{ bgcolor: 'white', fontWeight: 600, justifyContent: 'flex-start' }} />
                     </Stack>
                 )}
             </Paper>
 
             {/* Quick Menu */}
-            <Paper elevation={0} sx={{ p: 2.5, border: '1px solid', borderColor: 'divider' }}>
+            <Paper elevation={0} sx={{ p: 2.5, border: '1px solid', borderColor: 'divider', borderRadius: 3 }}>
                 <Typography fontWeight={800} mb={2}>🚀 เมนูด่วน</Typography>
-                <Grid container spacing={1}>
-                {menuShortcuts.map(m => (
+                <Grid container spacing={1.5}>
+                {menuShortcuts.map((m) => (
                     <Grid item xs={6} key={m.to}>
-                    <Button
-                        component={Link}
-                        to={m.to}
-                        fullWidth
-                        variant="outlined"
-                        sx={{
-                            justifyContent: "flex-start",
-                            color: 'text.primary',
-                            borderColor: 'divider',
-                            '&:hover': { borderColor: 'primary.main', bgcolor: alpha('#FFB300', 0.1) }
-                        }}
-                        startIcon={m.icon}
-                    >
-                        {m.label}
-                    </Button>
+                        <ButtonBase
+                            component={Link}
+                            to={m.to}
+                            sx={{
+                                width: '100%',
+                                p: 1.5,
+                                borderRadius: 3,
+                                bgcolor: 'background.paper',
+                                border: '1px solid',
+                                borderColor: 'divider',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 1,
+                                transition: 'all 0.2s ease-in-out',
+                                '&:hover': {
+                                    bgcolor: alpha(m.color, 0.05),
+                                    borderColor: m.color,
+                                    transform: 'translateY(-2px)',
+                                    boxShadow: `0 4px 12px ${alpha(m.color, 0.2)}`
+                                }
+                            }}
+                        >
+                            <Box 
+                                sx={{ 
+                                    p: 1, 
+                                    borderRadius: '50%', 
+                                    bgcolor: m.bg, 
+                                    color: m.color,
+                                    display: 'flex'
+                                }}
+                            >
+                                {m.icon}
+                            </Box>
+                            <Typography variant="caption" fontWeight={700} color="text.primary">
+                                {m.label}
+                            </Typography>
+                        </ButtonBase>
                     </Grid>
                 ))}
                 </Grid>
             </Paper>
 
             {/* Recent Orders List */}
-            <Paper elevation={0} sx={{ p: 0, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
+            <Paper elevation={0} sx={{ p: 0, border: '1px solid', borderColor: 'divider', overflow: 'hidden', borderRadius: 3 }}>
                 <Box p={2} bgcolor="#FAFAFA" borderBottom="1px solid #EEE">
                     <Typography fontWeight={800}>🛒 ออเดอร์ล่าสุด</Typography>
                 </Box>
                 <List dense sx={{ maxHeight: 300, overflow: 'auto' }}>
-                   {loading ? (
+                   {(loading && orders === null) ? (
                     <Box p={2}>
-                      <Skeleton />
-                      <Skeleton />
-                      <Skeleton />
+                      <Skeleton height={40} /><Skeleton height={40} /><Skeleton height={40} />
                     </Box>
                     ) : kpi.latest.map(o => (
-                        <ListItem
-                            key={o._id}
-                            disablePadding
-                            divider
-                        >
+                        <ListItem key={o._id} disablePadding divider>
                             <ListItemButton component={Link} to={`/orders/${o._id}`}>
                               <ListItemText
                                   primary={<Stack direction="row" spacing={1} alignItems="center">
@@ -400,7 +459,7 @@ export default function Dashboard() {
                             </ListItemButton>
                         </ListItem>
                     ))}
-                    {!loading && kpi.latest.length === 0 && <Box p={2} textAlign="center">ไม่มีข้อมูล</Box>}
+                    {(!loading || orders !== null) && kpi.latest.length === 0 && <Box p={2} textAlign="center" color="text.secondary">ไม่มีข้อมูล</Box>}
                 </List>
             </Paper>
           </Stack>
