@@ -1,11 +1,11 @@
 // frontend/adminweb/src/pages/Orders/OrdersList.tsx
 import { useEffect, useMemo, useState } from "react";
 import {
-  Box, Paper, Typography, Table, TableHead, TableRow, TableCell, TableBody,
+  Box, Paper, Table, TableHead, TableRow, TableCell, TableBody,
   Stack, Chip, TextField, Button, Tooltip, IconButton,
   InputAdornment, Dialog, DialogTitle, DialogContent, DialogActions,
   TablePagination, Card, CardContent, alpha, useTheme, Fade, Tab, Tabs, Alert, CircularProgress,
-  Checkbox, Backdrop, LinearProgress, Skeleton
+  Checkbox, Backdrop, LinearProgress, Skeleton, Typography
 } from "@mui/material";
 import { Link } from "react-router-dom";
 import * as XLSX from "xlsx";
@@ -32,7 +32,7 @@ const API = import.meta.env.VITE_API_URL || "/api";
 function getToken() { return localStorage.getItem(TOKEN_KEY) || ""; }
 const fmtBaht = (n: number) => (n || 0).toLocaleString("th-TH", { minimumFractionDigits: 2 }) + " ฿";
 
-// ... (Types & Mappings) ...
+// ... Types & Mappings ...
 type Order = {
   _id: string;
   orderNo: string;
@@ -170,7 +170,7 @@ export default function OrdersList() {
     setSelected(newSelected);
   };
 
-  // Actions
+  // --- 🖨️ Bulk Print Function (ปรับปรุงใหม่: แสดงสินค้าครบถ้วน + ไม่ตัดคำ) ---
   const handleBulkPrint = () => {
     const targets = rows?.filter(r => selected.includes(r._id)) || [];
     if (targets.length === 0) return;
@@ -178,57 +178,114 @@ export default function OrdersList() {
     const w = window.open('', '_blank');
     if (!w) return;
 
-    const chunkSize = 10;
-    const pages = [];
-    for (let i = 0; i < targets.length; i += chunkSize) {
-        pages.push(targets.slice(i, i + chunkSize));
-    }
-
     const htmlContent = `
       <html>
         <head>
-          <title>Bulk Print Labels</title>
+          <title>Printing Labels</title>
           <style>
-            @page { size: A4; margin: 0; }
-            body { margin: 0; padding: 0; font-family: 'Sarabun', sans-serif; -webkit-print-color-adjust: exact; }
-            .page { width: 210mm; height: 295mm; box-sizing: border-box; padding: 5mm; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(5, 1fr); gap: 5mm; page-break-after: always; }
-            .page:last-child { page-break-after: auto; }
-            .label { border: 1px dashed #ccc; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; background: #fff; position: relative; }
-            .header { font-size: 10px; color: #666; display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 5px; }
-            .content { flex-grow: 1; }
-            .to-label { font-size: 12px; font-weight: bold; color: #000; margin-bottom: 4px; }
-            .name { font-size: 16px; font-weight: 900; line-height: 1.2; margin-bottom: 4px; }
-            .address { font-size: 12px; line-height: 1.4; word-wrap: break-word; overflow: hidden; height: 55px; }
-            .tel { font-size: 14px; font-weight: bold; margin-top: 5px; }
-            .footer { font-size: 10px; border-top: 1px solid #eee; padding-top: 5px; margin-top: 5px; text-align: center; }
+            @page { size: A4; margin: 5mm; }
+            body { 
+                margin: 0; padding: 0; 
+                font-family: 'Sarabun', sans-serif; 
+                -webkit-print-color-adjust: exact; 
+                background: #fff;
+            }
+            .grid-container {
+                display: grid;
+                grid-template-columns: 1fr 1fr; /* 2 ใบต่อแถว */
+                gap: 5mm;
+                padding: 5mm;
+            }
+            .label-card { 
+                border: 2px solid #000; 
+                border-radius: 8px; 
+                padding: 10px; 
+                background: #fff; 
+                display: flex; 
+                flex-direction: column;
+                page-break-inside: avoid; /* ห้ามตัดกลางออเดอร์ */
+                min-height: 80mm; /* ความสูงขั้นต่ำ */
+            }
+            .header { 
+                border-bottom: 1px solid #ccc; 
+                padding-bottom: 5px; 
+                margin-bottom: 5px; 
+                display: flex; 
+                justify-content: space-between;
+                font-size: 12px; font-weight: bold; color: #555;
+            }
+            .customer-info { margin-bottom: 10px; }
+            .to-badge { 
+                background: #000; color: #fff; padding: 2px 6px; 
+                border-radius: 4px; font-size: 14px; font-weight: 800; 
+                display: inline-block; margin-bottom: 5px;
+            }
+            .cust-name { font-size: 18px; font-weight: 900; line-height: 1.2; }
+            .cust-addr { font-size: 14px; margin-top: 4px; line-height: 1.3; }
+            .cust-tel { font-size: 16px; font-weight: 800; margin-top: 4px; }
+
+            .items-table {
+                width: 100%; border-collapse: collapse; margin-top: 5px; flex-grow: 1;
+            }
+            .items-table th { 
+                text-align: left; font-size: 10px; background: #eee; padding: 2px 4px; 
+            }
+            .items-table td { 
+                border-bottom: 1px dotted #ddd; font-size: 12px; padding: 4px 2px; vertical-align: top;
+            }
+            .item-qty { font-weight: 800; text-align: center; width: 30px; }
+            .item-detail { color: #666; font-size: 11px; }
+
+            .footer { 
+                margin-top: 10px; padding-top: 5px; border-top: 2px solid #000; 
+                text-align: center; font-weight: 800; font-size: 12px;
+                background: #f0f0f0; border-radius: 4px;
+            }
           </style>
-          <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700;800&display=swap" rel="stylesheet">
+          <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;800&display=swap" rel="stylesheet">
         </head>
         <body>
-          ${pages.map(chunk => `
-            <div class="page">
-              ${chunk.map(order => `
-                <div class="label">
+          <div class="grid-container">
+            ${targets.map(order => {
+                const itemsRows = (order.items || []).map((it:any) => `
+                    <tr>
+                        <td>
+                            <div>${it.productName}</div>
+                            <div class="item-detail">สี: ${it.color || '-'} | ไซส์: ${it.size || '-'}</div>
+                        </td>
+                        <td class="item-qty">x${it.quantity}</td>
+                    </tr>
+                `).join('');
+
+                const shipLabel = order.shippingType === 'DELIVERY' ? '🚚 จัดส่งพัสดุ (Delivery)' : 
+                                  order.shippingType === 'PICKUP_EVENT' ? '🛑 รับหน้างาน (Event)' : '🏠 รับที่สมาคม';
+
+                return `
+                <div class="label-card">
                    <div class="header">
-                      <span>Order: ${order.orderNo}</span>
+                      <span>ORD: ${order.orderNo}</span>
                       <span>${new Date(order.createdAt).toLocaleDateString('th-TH')}</span>
                    </div>
-                   <div class="content">
-                      <div class="to-label">ผู้รับ (TO)</div>
-                      <div class="name">${order.customerName}</div>
-                      <div class="address">${order.customerAddress || "-"}</div>
-                      <div class="tel">Tel: ${order.customerPhone || "-"}</div>
+                   <div class="customer-info">
+                      <span class="to-badge">ผู้รับ (TO)</span>
+                      <div class="cust-name">${order.customerName}</div>
+                      <div class="cust-addr">${order.customerAddress || "- (รับสินค้าเอง) -"}</div>
+                      <div class="cust-tel">Tel: ${order.customerPhone || "-"}</div>
                    </div>
+                   
+                   <table class="items-table">
+                        <thead><tr><th>รายการสินค้า</th><th style="text-align:center">จำนวน</th></tr></thead>
+                        <tbody>${itemsRows}</tbody>
+                   </table>
+
                    <div class="footer">
-                      ${(order.shippingType || "DELIVERY") === "PICKUP_EVENT" ? "🛑 รับหน้างาน" : "🚚 จัดส่งพัสดุ"} 
-                      | ${order.items?.length || 0} รายการ
+                      ${shipLabel} | รวม ${order.items?.length || 0} รายการ
                    </div>
                 </div>
-              `).join('')}
-            </div>
-          `).join('')}
+              `}).join('')}
+          </div>
           <script>
-            window.onload = function() { setTimeout(function(){ window.print(); }, 500); }
+            window.onload = function() { setTimeout(function(){ window.print(); }, 1000); }
           </script>
         </body>
       </html>
@@ -237,53 +294,103 @@ export default function OrdersList() {
     w.document.close();
   };
 
+  // --- 📊 Export Excel Function (ปรับปรุงใหม่: มี Summary Sheet) ---
   const exportExcel = async () => {
     if(!rows || rows.length === 0) return showError("ไม่พบข้อมูล", "ไม่มีรายการออเดอร์ให้ Export");
     
-    const confirm = await showConfirm("ยืนยันการ Export?", `ต้องการดาวน์โหลดข้อมูล ${rows.length} รายการเป็นไฟล์ Excel หรือไม่?`, "ดาวน์โหลด");
+    const confirm = await showConfirm("ยืนยันการ Export?", `ระบบจะสร้างไฟล์ Excel รวมข้อมูลออเดอร์และสรุปยอดขายแยกตามประเภท`, "ดาวน์โหลด");
     if(!confirm) return;
 
     setExporting(true);
-    showLoading("กำลังสร้างไฟล์ Excel", "ระบบกำลังรวบรวมข้อมูล กรุณารอสักครู่...");
+    showLoading("กำลังสร้างไฟล์ Excel", "กรุณารอสักครู่...");
 
     try {
         await new Promise(r => setTimeout(r, 800)); 
         
+        const wb = XLSX.utils.book_new();
+
+        // ------------------------------------------
+        // Sheet 1: รายการออเดอร์ (Data)
+        // ------------------------------------------
         const dataToExport = rows.map((r, index) => {
+            // แปลง items เป็น string ยาวๆ
             const itemsStr = (r.items || []).map((item: any, idx: number) => {
                 const details = [];
-                if (item.size) details.push(`ไซส์: ${item.size}`);
-                if (item.color) details.push(`สี: ${item.color}`);
-                const detailStr = details.length > 0 ? ` (${details.join(' / ')})` : '';
-                return `${idx + 1}. ${item.productName}${detailStr} x${item.quantity} @${item.price}`;
-            }).join('\r\n');
+                if (item.size) details.push(`Size:${item.size}`);
+                if (item.color) details.push(`Color:${item.color}`);
+                const detailStr = details.length > 0 ? ` [${details.join(' ')}]` : '';
+                return `${idx + 1}. ${item.productName}${detailStr} (x${item.quantity})`;
+            }).join(' \r\n');
 
             return {
                 "ลำดับ": index + 1,
-                "เลขที่ออเดอร์": r.orderNo,
+                "เลขที่ Order": r.orderNo,
                 "วันที่สั่งซื้อ": new Date(r.createdAt).toLocaleDateString("th-TH"),
                 "เวลา": new Date(r.createdAt).toLocaleTimeString("th-TH"),
                 "ชื่อลูกค้า": r.customerName,
                 "เบอร์โทร": r.customerPhone || "-",
-                "รายการสินค้า (Items)": itemsStr,
-                "ยอดรวม (บาท)": r.totalAmount,
-                "สถานะการชำระ": PAY_THAI[r.paymentStatus] || r.paymentStatus,
-                "สถานะคำสั่งซื้อ": ORDER_THAI[r.orderStatus] || r.orderStatus,
-                "การจัดส่ง": SHIP_THAI[r.shippingType || "DELIVERY"] || r.shippingType,
-                "Tracking No": r.trackingNumber || "-",
                 "ที่อยู่จัดส่ง": r.customerAddress || "-",
+                "ประเภทจัดส่ง": SHIP_THAI[r.shippingType || "DELIVERY"] || r.shippingType,
+                "รายการสินค้า": itemsStr,
+                "ยอดรวม (บาท)": r.totalAmount,
+                "สถานะการเงิน": PAY_THAI[r.paymentStatus] || r.paymentStatus,
+                "สถานะออเดอร์": ORDER_THAI[r.orderStatus] || r.orderStatus,
+                "Tracking No": r.trackingNumber || "-",
             };
         });
 
-        const wb = XLSX.utils.book_new();
-        const ws = XLSX.utils.json_to_sheet(dataToExport);
-        ws['!cols'] = [
-            { wch: 6 }, { wch: 18 }, { wch: 12 }, { wch: 10 }, { wch: 25 },
-            { wch: 15 }, { wch: 60 }, { wch: 12 }, { wch: 15 }, { wch: 15 },
-            { wch: 15 }, { wch: 18 }, { wch: 40 },
+        const wsData = XLSX.utils.json_to_sheet(dataToExport);
+        wsData['!cols'] = [
+            { wch: 6 }, { wch: 15 }, { wch: 12 }, { wch: 10 }, { wch: 20 },
+            { wch: 15 }, { wch: 40 }, { wch: 20 }, { wch: 50 }, { wch: 12 }, 
+            { wch: 15 }, { wch: 15 }, { wch: 20 }
         ];
-        XLSX.utils.book_append_sheet(wb, ws, "Orders");
-        XLSX.writeFile(wb, `Orders_Export_${new Date().toISOString().slice(0, 10)}.xlsx`);
+        XLSX.utils.book_append_sheet(wb, wsData, "รายการออเดอร์");
+
+        // ------------------------------------------
+        // Sheet 2: สรุปยอดขาย (Summary)
+        // ------------------------------------------
+        // เฉพาะออเดอร์ที่ 'PAYMENT_CONFIRMED' เท่านั้นที่นำมานับยอดขาย
+        const paidOrders = rows.filter(r => r.paymentStatus === "PAYMENT_CONFIRMED");
+        
+        const summaryByType = {
+            "DELIVERY": { count: 0, total: 0, label: "จัดส่งพัสดุ (Delivery)" },
+            "PICKUP_EVENT": { count: 0, total: 0, label: "รับหน้างาน (Event)" },
+            "PICKUP_SMAKHOM": { count: 0, total: 0, label: "รับที่สมาคม (Smakhom)" }
+        };
+
+        let grandTotal = 0;
+        let grandCount = 0;
+
+        paidOrders.forEach(r => {
+            const type = (r.shippingType || "DELIVERY") as keyof typeof summaryByType;
+            if (summaryByType[type]) {
+                summaryByType[type].count++;
+                summaryByType[type].total += r.totalAmount;
+            }
+            grandTotal += r.totalAmount;
+            grandCount++;
+        });
+
+        const summaryRows = [
+            { "หัวข้อ": "รายงานสรุปยอดขาย", "รายละเอียด": `ข้อมูล ณ วันที่ ${new Date().toLocaleDateString("th-TH")}`, "จำนวน (ออเดอร์)": "", "ยอดเงิน (บาท)": "" },
+            {}, 
+            { "หัวข้อ": "ประเภทการจัดส่ง", "รายละเอียด": "", "จำนวน (ออเดอร์)": "จำนวน", "ยอดเงิน (บาท)": "ยอดรวม" },
+            ...Object.values(summaryByType).map(s => ({
+                "หัวข้อ": s.label,
+                "รายละเอียด": "",
+                "จำนวน (ออเดอร์)": s.count,
+                "ยอดเงิน (บาท)": s.total
+            })),
+            {},
+            { "หัวข้อ": "รวมทั้งสิ้น", "รายละเอียด": "(เฉพาะยอดที่ชำระแล้ว)", "จำนวน (ออเดอร์)": grandCount, "ยอดเงิน (บาท)": grandTotal }
+        ];
+
+        const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+        wsSummary['!cols'] = [{ wch: 30 }, { wch: 25 }, { wch: 15 }, { wch: 20 }];
+        XLSX.utils.book_append_sheet(wb, wsSummary, "สรุปยอดขาย");
+
+        XLSX.writeFile(wb, `Order_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
         
         swal.close();
         showSuccess("ดาวน์โหลดสำเร็จ", "ไฟล์ Excel ถูกบันทึกเรียบร้อยแล้ว");
@@ -353,7 +460,6 @@ export default function OrdersList() {
 
   return (
     <Box>
-      {/* 1. Backdrop สำหรับ First Load */}
       <Backdrop
         sx={{ 
             color: '#fff', 
@@ -371,7 +477,6 @@ export default function OrdersList() {
         </Typography>
       </Backdrop>
 
-      {/* 2. LinearProgress สำหรับ Background Refresh */}
       <Fade in={loading && rows !== null} unmountOnExit>
         <LinearProgress 
             sx={{ 
@@ -382,7 +487,6 @@ export default function OrdersList() {
         />
       </Fade>
 
-      {/* Header */}
       <Stack direction={{ xs:"column", md:"row" }} justifyContent="space-between" alignItems="center" mb={4} spacing={2}>
         <Stack direction="row" spacing={2} alignItems="center">
             <Box p={1.5} borderRadius={3} bgcolor={alpha(theme.palette.primary.main, 0.1)} color="primary.main">
@@ -417,7 +521,6 @@ export default function OrdersList() {
         </Stack>
       </Stack>
 
-      {/* KPI Cards */}
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={3}>
          <Card sx={{ flex: 1, borderRadius: 3, boxShadow: 'none', border: '1px solid', borderColor: 'divider' }}>
             <CardContent sx={{ display: 'flex', alignItems: 'center', p: 2, '&:last-child': { pb: 2 } }}>
@@ -454,7 +557,6 @@ export default function OrdersList() {
          </Card>
       </Stack>
 
-      {/* Filter Tabs */}
       <Paper sx={{ mb: 3, borderRadius: 3, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
         <Box sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: alpha(theme.palette.primary.main, 0.04) }}>
             <Tabs 
@@ -483,7 +585,6 @@ export default function OrdersList() {
         </Box>
       </Paper>
 
-      {/* Table */}
       <Paper sx={{ width: '100%', overflow: 'hidden', borderRadius: 3, boxShadow: '0 4px 20px rgba(0,0,0,0.05)', border: '1px solid', borderColor: 'divider' }}>
         <Table>
           <TableHead sx={{ bgcolor: '#FAFAFA' }}>
@@ -611,7 +712,6 @@ export default function OrdersList() {
         />
       </Paper>
 
-      {/* Message Dialog */}
       <Dialog open={msgDlg.open} onClose={()=>setMsgDlg({open:false})} fullWidth maxWidth="xs" PaperProps={{ sx: { borderRadius: 3 } }}>
         <DialogTitle sx={{ fontWeight: 700, borderBottom: '1px solid', borderColor: 'divider' }}>💬 ส่งข้อความหาลูกค้า</DialogTitle>
         <DialogContent sx={{ pt: 3 }}>
