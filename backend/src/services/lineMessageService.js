@@ -13,12 +13,16 @@ if (!CHANNEL_ACCESS_TOKEN) {
 const PUBLIC_WEB_BASE_URL = process.env.PUBLIC_WEB_BASE_URL || '';
 const WEB_BASE = PUBLIC_WEB_BASE_URL.startsWith('https://') ? PUBLIC_WEB_BASE_URL : null;
 
+// Admin Targets (User IDs หรือ Group ID)
 const ADMIN_SINGLE = process.env.LINE_ADMIN_USER_ID || '';
 const ADMIN_LIST = (process.env.LINE_ADMIN_USER_IDS || '')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);
 const ADMIN_IDS = ADMIN_LIST.length ? ADMIN_LIST : (ADMIN_SINGLE ? [ADMIN_SINGLE] : []);
+
+// Group ID สำหรับห้อง Admin (ต้องตั้งค่าใน .env)
+const ADMIN_GROUP_ID = process.env.LINE_ADMIN_GROUP_ID;
 
 /* =============== LINE HTTP CLIENT =============== */
 const http = axios.create({
@@ -75,25 +79,46 @@ async function safePost(url, body) {
 
 const thMoney = (n) => Number(n || 0).toLocaleString('th-TH');
 
+// Helper for status mapping
+const STATUS_TH = {
+  RECEIVED: 'รับออเดอร์',
+  PREPARING_ORDER: 'กำลังเตรียมสินค้า',
+  SHIPPING: 'จัดส่งแล้ว',
+  COMPLETED: 'สำเร็จ',
+  CANCELLED: 'ยกเลิก',
+  WAITING: 'รอโอน',
+  PENDING_PAYMENT: 'รอตรวจสอบ',
+  PAYMENT_CONFIRMED: 'ชำระแล้ว',
+  REJECTED: 'สลิปไม่ผ่าน',
+  EXPIRED: 'หมดอายุ'
+};
+
+const getColor = (status) => {
+  if (['PAYMENT_CONFIRMED', 'COMPLETED', 'SHIPPING'].includes(status)) return '#1DB446'; // Green
+  if (['CANCELLED', 'REJECTED', 'EXPIRED'].includes(status)) return '#FF334B'; // Red
+  if (['PENDING_PAYMENT'].includes(status)) return '#FFC107'; // Yellow
+  return '#aaaaaa';
+};
+
 /* ====================== ✨ PREMIUM FLEX BUILDERS ====================== */
 
-/** 1. อัปเดตสถานะออเดอร์ทั่วไป */
 function buildOrderStatusUpdateFlex(order) {
   const statusLabels = {
     'RECEIVED': { text: 'รับออเดอร์แล้ว', color: '#17a2b8', icon: '📝' },
     'PREPARING_ORDER': { text: 'กำลังจัดเตรียมสินค้า', color: '#ffc107', icon: '📦' },
     'SHIPPING': { text: 'กำลังจัดส่ง', color: '#007bff', icon: '🚚' },
     'COMPLETED': { text: 'สำเร็จเรียบร้อย', color: '#28a745', icon: '✅' },
-    'CANCELLED': { text: 'ยกเลิกออเดอร์', color: '#dc3545', icon: '❌' }
+    'CANCELLED': { text: 'ยกเลิกออเดอร์', color: '#dc3545', icon: '❌' },
+    'PAYMENT_CONFIRMED': { text: 'ชำระเงินเรียบร้อย', color: '#28a745', icon: '💰' },
+    'REJECTED': { text: 'ชำระเงินไม่ผ่าน', color: '#dc3545', icon: '⚠️' }
   };
-  const current = statusLabels[order.orderStatus] || { text: order.orderStatus, color: '#6c757d', icon: '📢' };
+  const current = statusLabels[order.orderStatus] || statusLabels[order.paymentStatus] || { text: order.orderStatus, color: '#6c757d', icon: '📢' };
 
   const bubble = {
     type: 'bubble',
     header: {
       type: 'box', layout: 'vertical', backgroundColor: current.color,
       contents: [
-        // ✅ แก้ไข: นำ opacity ออก และใช้สีขาวแบบจาง (#ffffffcc) แทน
         { type: 'text', text: 'ORDER UPDATE', color: '#ffffffcc', size: 'xs', weight: 'bold' },
         { type: 'text', text: `${current.icon} ${current.text}`, color: '#ffffff', size: 'lg', weight: 'bold', margin: 'xs' }
       ]
@@ -129,7 +154,6 @@ function buildOrderStatusUpdateFlex(order) {
   return { type: 'flex', altText: `📢 อัปเดตสถานะออเดอร์ #${order.orderNo}`, contents: bubble };
 }
 
-/** 2. แจ้งเมื่อมีการสร้างออเดอร์ใหม่ */
 function buildOrderCreatedFlex(order, { forAdmin = false } = {}) {
   const amount = thMoney(order.totalAmount);
   const shippingBadge = order.shippingType === 'DELIVERY'
@@ -190,7 +214,6 @@ function buildOrderCreatedFlex(order, { forAdmin = false } = {}) {
   return { type: 'flex', altText: `🛒 ออเดอร์ใหม่ #${order.orderNo}`, contents: bubble };
 }
 
-/** 3. แจ้งผลการตรวจสอบสลิป */
 function buildSlipResultFlex(order, { success, message }) {
   const config = success
     ? { title: 'ชำระเงินสำเร็จ', color: '#28a745', icon: 'https://cdn-icons-png.flaticon.com/512/5290/5290058.png' }
@@ -234,7 +257,6 @@ function buildSlipResultFlex(order, { success, message }) {
   return { type: 'flex', altText: `🧾 ผลตรวจสลิป ออเดอร์ #${order.orderNo}`, contents: bubble };
 }
 
-/** 4. แจ้งพัสดุจัดส่งแล้ว */
 function buildShippingStartedFlex(order) {
   const bubble = {
     type: 'bubble',
@@ -285,7 +307,6 @@ function buildShippingStartedFlex(order) {
   return { type: 'flex', altText: `🚚 ส่งของแล้ว! ออเดอร์ #${order.orderNo}`, contents: bubble };
 }
 
-/** 5. แจ้งนำจ่ายสำเร็จ */
 function buildDeliveredFlex(order, barcode) {
   return {
     type: 'flex',
@@ -317,7 +338,7 @@ function buildDeliveredFlex(order, barcode) {
 
 async function sendToTargets(targetIds, messageObject) {
   if (!targetIds?.length) return true;
-  const userIds = targetIds.filter(id => id.startsWith('U'));
+  const userIds = targetIds.filter(id => id.startsWith('U')); 
   const otherIds = targetIds.filter(id => !id.startsWith('U'));
 
   let okAll = true;
@@ -339,14 +360,89 @@ async function pushToUser(userId, textOrFlex) {
 }
 
 async function pushToAdmin(textOrFlex) {
-  if (!ADMIN_IDS.length) return true;
+  const targets = [...ADMIN_IDS];
+  if (ADMIN_GROUP_ID) targets.push(ADMIN_GROUP_ID);
+  
+  if (!targets.length) return true;
   const message = typeof textOrFlex === 'string' ? { type: 'text', text: textOrFlex } : textOrFlex;
-  return sendToTargets(ADMIN_IDS, message);
+  return sendToTargets(targets, message);
 }
 
 async function pushOrderStatusUpdate(order) {
   if (!order?.customerLineId) return true;
   return pushToUser(order.customerLineId, buildOrderStatusUpdateFlex(order));
+}
+
+// [NEW] ฟังก์ชันแจ้งเตือน Admin แบบละเอียด เมื่อสถานะเปลี่ยน
+async function pushOrderStatusUpdateToAdmin(order, prevStatus, prevPayment) {
+  const targets = [...ADMIN_IDS];
+  if (ADMIN_GROUP_ID) targets.push(ADMIN_GROUP_ID);
+  
+  if (!targets.length) return;
+
+  const changes = [];
+  if (prevStatus !== order.orderStatus) {
+    changes.push({
+      type: 'text', text: `สถานะ: ${STATUS_TH[prevStatus]||prevStatus} ➝ ${STATUS_TH[order.orderStatus]||order.orderStatus}`,
+      size: 'sm', color: getColor(order.orderStatus), weight: 'bold', wrap: true
+    });
+  }
+  if (prevPayment !== order.paymentStatus) {
+    changes.push({
+      type: 'text', text: `การเงิน: ${STATUS_TH[prevPayment]||prevPayment} ➝ ${STATUS_TH[order.paymentStatus]||order.paymentStatus}`,
+      size: 'sm', color: getColor(order.paymentStatus), weight: 'bold', wrap: true
+    });
+  }
+
+  // Items info (max 5)
+  const itemsContent = (order.items || []).slice(0, 5).map(it => ({
+      type: 'box', layout: 'horizontal', contents: [
+          { type: 'text', text: `▪ ${it.productName} (${it.size||'-'} ${it.color||''})`, size: 'xs', color: '#555555', flex: 7, wrap: true },
+          { type: 'text', text: `x${it.quantity}`, size: 'xs', align: 'end', flex: 2 }
+      ]
+  }));
+  if(order.items.length > 5) {
+      itemsContent.push({ type: 'text', text: `...และอีก ${order.items.length-5} รายการ`, size: 'xxs', color: '#999999', align: 'end' });
+  }
+
+  const flex = {
+    type: 'flex',
+    altText: `Update Order #${order.orderNo}`,
+    contents: {
+      type: 'bubble',
+      header: {
+        type: 'box', layout: 'vertical', backgroundColor: '#f7f7f7',
+        contents: [
+          { type: 'text', text: 'ORDER UPDATE', weight: 'bold', size: 'xxs', color: '#aaaaaa' },
+          { type: 'text', text: order.orderNo, weight: 'bold', size: 'lg', margin: 'xs' },
+          { type: 'text', text: order.customerName, size: 'sm', color: '#333333' }
+        ]
+      },
+      body: {
+        type: 'box', layout: 'vertical',
+        contents: [
+          ...changes,
+          { type: 'separator', margin: 'md' },
+          { type: 'text', text: 'Items:', size: 'xs', weight: 'bold', margin: 'md', color: '#aaaaaa' },
+          ...itemsContent,
+          { type: 'separator', margin: 'md' },
+          { type: 'box', layout: 'horizontal', margin: 'md', contents: [
+              { type: 'text', text: 'Total', size: 'sm', color: '#555555' },
+              { type: 'text', text: thMoney(order.totalAmount), size: 'sm', weight: 'bold', align: 'end' }
+          ]}
+        ]
+      },
+      footer: {
+        type: 'box', layout: 'vertical',
+        contents: [{
+            type: 'button', style: 'link', height: 'sm',
+            action: { type: 'uri', label: 'View Order', uri: `${process.env.PUBLIC_WEB_BASE_URL}/admin/orders/${order._id}` }
+        }]
+      }
+    }
+  };
+
+  return sendToTargets(targets, flex);
 }
 
 async function pushShippingStarted(order) {
@@ -368,19 +464,24 @@ async function pushOrderCreatedFlexToUser(userId, order) {
 }
 
 async function pushOrderCreatedFlexToAdmin(order) {
-  if (!ADMIN_IDS.length) return true;
-  return sendToTargets(ADMIN_IDS, buildOrderCreatedFlex(order, { forAdmin: true }));
+  const targets = [...ADMIN_IDS];
+  if (ADMIN_GROUP_ID) targets.push(ADMIN_GROUP_ID);
+  if (!targets.length) return true;
+  return sendToTargets(targets, buildOrderCreatedFlex(order, { forAdmin: true }));
 }
 
 async function pushSlipResultFlexToAdmin(order, result) {
-  if (!ADMIN_IDS.length) return true;
-  return sendToTargets(ADMIN_IDS, buildSlipResultFlex(order, result));
+  const targets = [...ADMIN_IDS];
+  if (ADMIN_GROUP_ID) targets.push(ADMIN_GROUP_ID);
+  if (!targets.length) return true;
+  return sendToTargets(targets, buildSlipResultFlex(order, result));
 }
 
 module.exports = {
   pushToUser,
   pushToAdmin,
   pushOrderStatusUpdate,
+  pushOrderStatusUpdateToAdmin,
   pushShippingStarted,
   pushDelivered,
   pushSlipResultFlexToUser,
